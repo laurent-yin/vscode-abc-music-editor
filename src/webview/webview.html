@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+  <html lang="en">
+  <head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>ABC Preview</title>
+	<style>
+	  .selMarker { fill: #d00000; fill-opacity: 0; z-index: 15; }
+	  #play-button { margin: 10px; padding: 6px 12px; font-size: 14px; }
+	</style>
+    <script>
+      window.baseUri = '__BASE_URI__';
+    </script>
+	<script src="__BASE_URI__/lib/abc2svg-1.js"" type="text/javascript"></script>
+  </head>
+  <body>
+	<button id="play-button">Play</button>
+	<div id="sheet"></div>
+	<script src="__BASE_URI__/src/webview/preview.js"></script>
+  </body>
+  </html>

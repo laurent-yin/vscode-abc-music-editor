@@ -1,0 +1,38 @@
+{
+	"Insert ABC Header": {
+		"prefix": "abc-header",
+		"body": [
+			"X:1",
+      "%%topmargin 0",
+      "%%botmargin 0",
+			"T:${1:Title}",
+			"C:${2:Composer}",
+      "%%MIDI gchord fc2cfhcf",
+			"M:${3|2/4,6/8|}",
+			"L:${4|1/16,1/8|}",
+      "Q:${5|1/4=92,1/4=96|}",
+      "R:${6:Rhythm}",
+			"K:${7:Key} clef=treble"
+		],
+		"description": "Insert ABC Header"
+    },
+    "Insert ABC style directives": {
+        "prefix": "abc-style",
+		"body": [
+        "%%partsfont Times-BoldItalic 15 box",
+        "%%gchordfont Helvetica-BoldItalic 10",
+        "%%titleformat R-Q- T C1",
+        "%%composerspace 0",
+        "%%musicspace 0",
+        "%%partsspace 0",
+        "%%titlespace 0",
+        "%%topspace 0",
+        "%%leftmargin 0",
+        "%%rightmargin 0",
+        "%%maxshrink 0.9",
+        "%%cancelkey 0",
+        "%%keywarn 0"
+        ],
+     "description": "Insert style directives for ABC files"
+    }
+}

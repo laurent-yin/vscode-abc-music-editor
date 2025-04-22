@@ -1,0 +1,100 @@
+{
+	"name": "abc-to-svg",
+	"displayName": "ABC2SVG Support",
+	"description": "Support for ABC Music Notation using abc2svg.",
+	"version": "0.4.0",
+	"engines": {
+		"vscode": "^1.45.0"
+	},
+	"icon": "resources/icons/appIcon.png",
+	"author": {
+		"name": "Laurent Yin"
+	},
+	"categories": [
+		"Programming Languages"
+	],
+	"repository": {
+		"url": "https://github.com/laurent-yin/vscode-abc-music-editor"
+	},
+	"activationEvents": [
+		"onLanguage:abc",
+		"onFileSystem:abc"
+	],
+	"publisher": "Laurent Yin",
+	"main": "./out/extension/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "vscode-abc-music-editor.showMusicsheet",
+				"title": "Preview ABC. You can hit Ctrl+S (save) on a file to update the view of the last opened Preview panel.",
+				"icon": {
+					"light": "resources/icons/light/quaver.svg",
+					"dark": "resources/icons/dark/quaver.svg"
+				}
+			}
+		],
+		"menus": {
+			"editor/title": [
+				{
+					"command": "vscode-abc-music-editor.showMusicsheet",
+					"when": "editorLangId == abc",
+					"group": "navigation"
+				}
+			]
+		},
+		"languages": [
+			{
+				"id": "abc",
+				"aliases": [
+					"ABC"
+				],
+				"extensions": [
+					".abc"
+				]
+			}
+		],
+		"grammars": [
+			{
+				"language": "abc",
+				"scopeName": "source.abc",
+				"path": "./syntaxes/abc.tmGrammar.json"
+			}
+		],
+		"themes": [
+			{
+				"label": "ABC Music",
+				"uiTheme": "vs",
+				"path": "./themes/abc-color-theme.json"
+			}
+		],
+		"snippets": [
+			{
+				"language": "abc",
+				"path": "./snippets/snippets.json"
+			}
+		],
+		"webviewResources": [
+			"lib/**",
+			"src/webview/**"
+		]
+	},
+	"scripts": {
+		"vscode:prepublish": "npm run compile",
+		"compile": "tsc -p ./ && npm run copy-assets",
+		"copy-assets": "cpx lib/*.* out/lib",
+		"lint": "eslint src --ext ts",
+		"watch": "tsc -watch -p ./",
+		"pretest": "npm run compile && npm run lint",
+		"test": "node ./out/test/runTest.js"
+	},
+	"devDependencies": {
+		"@types/node": "^22.14.1",
+		"@types/vscode": "^1.99.1",
+		"@typescript-eslint/eslint-plugin": "^8.30.1",
+		"@typescript-eslint/parser": "^8.30.1",
+		"cpx": "^1.5.0",
+		"eslint": "^9.25.0",
+		"typescript": "^5.8.3",
+		"vscode-test": "^1.6.1"
+	}
+}
