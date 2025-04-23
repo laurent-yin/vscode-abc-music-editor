@@ -1,114 +1,29 @@
 {
     "scopeName": "source.abc",
     "patterns": [
-        { "include": "#referencenumber" },
-        { "include": "#title" },
-        { "include": "#key" },
-        { "include": "#meter" },
-        { "include": "#length" },
-        { "include": "#tempo" },
-        { "include": "#composer" },
-        { "include": "#instructions" },
+        { "include": "#field" },
+        { "include": "#directive" },
         { "include": "#comments" },
-        { "include": "#voice-section" },
         { "include": "#chords" },
-        { "include": "#bar" },
-        { "include": "#rhythm" }
+        { "include": "#bar" }
     ],
     "repository": {
-        "title": {
+        "field": {
             "patterns": [                
                 {
-                    "match": "^(T:)(.*)",
+                    "match": "^([A-Za-z]:)(.*)",
                     "captures": {
-                        "1": { "name": "keyword.other.title.abc" },
-                        "2": { "name": "string.value.title.abc" }
+                        "1": { "name": "keyword" },
+                        "2": { "name": "string" }
                     }
                 }
             ]
         },
-        "rhythm": {
-            "patterns": [                
-                {
-                    "match": "^(R:)(.*)",
-                    "captures": {
-                        "1": { "name": "keyword.other.rhythm.abc" },
-                        "2": { "name": "string.value.rhythm.abc" }
-                    }
-                }
-            ]
-        },
-        "key": {
-            "patterns": [                
-                {
-                    "match": "^(K:)(.*)",
-                    "captures": {
-                        "1": { "name": "keyword.other.key.abc" },
-                        "2": { "name": "string.value.key.abc" }
-                    }
-                }
-            ]
-        },
-        "meter": {
-            "patterns": [                
-                {
-                    "match": "^(M:)(.*)",
-                    "captures": {
-                        "1": { "name": "keyword.other.meter.abc" },
-                        "2": { "name": "string.value.meter.abc" }
-                    }
-                }
-            ]
-        },
-        "length": {
-            "patterns": [                
-                {
-                    "match": "^(L:)(.*)",
-                    "captures": {
-                        "1": { "name": "keyword.other.length.abc" },
-                        "2": { "name": "string.value.length.abc" }
-                    }
-                }
-            ]
-        },
-        "tempo": {
-            "patterns": [                
-                {
-                    "match": "^(Q:)(.*)",
-                    "captures": {
-                        "1": { "name": "keyword.other.tempo.abc" },
-                        "2": { "name": "string.value.tempo.abc" }
-                    }
-                }
-            ]
-        },
-        "referencenumber": {
-            "patterns": [                
-                {
-                    "match": "^(X:)(.*)",
-                    "captures": {
-                        "1": { "name": "keyword.other.referencenumber.abc" },
-                        "2": { "name": "string.value.referencenumber.abc" }
-                    }
-                }
-            ]
-        },
-        "composer": {
-            "patterns": [                
-                {
-                    "match": "^(C:)(.*)",
-                    "captures": {
-                        "1": { "name": "keyword.other.composer.abc" },
-                        "2": { "name": "string.value.composer.abc" }
-                    }
-                }
-            ]
-        },
-        "instructions": {
+        "directive": {
             "patterns": [                
                 {
                     "match": "^%%.*",
-                    "name": "keyword.other.instruction.abc"
+                    "name": "storage"
                 }
             ]
         },
@@ -116,37 +31,15 @@
             "patterns": [                
                 {
                     "match": "^%.*",
-                    "name": "comment.line.abc"
+                    "name": "comment"
                 }
-            ]
-        },
-        "voice-section": {
-            "name": "abc.section.voice",
-            "begin": "^(V:\\d)(.*)",            
-            "beginCaptures": {
-                "0": { "name": "keyword.other.region.voice.abc" }
-            },
-            "while": "(?# include lines until one contains 'V:')^(?!V:\\d|X:)",
-            "patterns": [
-                { "include": "#chords" },
-                { "include": "#words" },
-                { "include": "#bar" },
-                { "include": "#ornaments" }
             ]
         },
         "chords": {
             "patterns": [                
                 {
                     "match": "\"([^\"]*)\"",
-                    "name": "keyword.other.chords.abc"
-                }
-            ]
-        },
-        "words": {
-            "patterns": [                
-                {
-                    "match": "^(w:)(.*)",
-                    "name": "keyword.other.words.abc"
+                    "name": "string"
                 }
             ]
         },
@@ -154,17 +47,9 @@
             "patterns": [                
                 {
                     "match": ":?\\|[:\\]]?",
-                    "name": "keyword.other.bar.abc"
+                    "name": "keyword"
                 }
             ]
-        },
-        "ornaments": {
-            "patterns": [                
-                {
-                    "match": "\\!([^\\!.]*)\\!",
-                    "name": "keyword.other.ornaments.abc"
-                }
-            ]
-        }        
+        }
     }
 }

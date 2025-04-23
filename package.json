@@ -60,13 +60,6 @@
 				"path": "./syntaxes/abc.tmGrammar.json"
 			}
 		],
-		"themes": [
-			{
-				"label": "ABC Music",
-				"uiTheme": "vs",
-				"path": "./themes/abc-color-theme.json"
-			}
-		],
 		"snippets": [
 			{
 				"language": "abc",
