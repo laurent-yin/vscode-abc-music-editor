@@ -92,8 +92,15 @@ function showDiagnostics(message: string, line: number, col: number) {
 	const editor = vscode.window.activeTextEditor;
 	if (!editor) return;
 
-	const range = new vscode.Range(line, col || 0, line, col + 1);
-  
+    const lineText = editor.document.lineAt(line).text; // Get the text of the specified line
+
+	const column = col || 0;
+	if (column > lineText.length) {
+		console.error(`ABC error highlighting returned an invalid state. Column ${column} exceeds line ${line}'s length ${lineText.length}. Error was: ${message}`);
+		return;
+	}
+    const range = new vscode.Range(line, col || 0, line, Math.min(col + 3, lineText.length)); // Create a range of three characters
+    
 	const diagnostic = new vscode.Diagnostic(
 	  range,
 	  message,

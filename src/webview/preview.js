@@ -1,26 +1,29 @@
 const vscode = acquireVsCodeApi();
 let play = {};
-let abcEngine;
+let abc;
 
 // callback called by abc2svg to load the modules it needs as part of its processing
 abc2svg.loadjs = function (fn, relay, onerror) {
     let script = document.createElement('script');
     script.src = `${window.baseUri}/lib/${fn}`;
     script.type = 'text/javascript';
-    if (relay)
-        script.onload = relay;
-    script.onerror = onerror || function () {
-        console.log('error loading ' + fn)
+    script.onload = (event) => {
+        console.log('loaded module ' + fn);
+        if (relay) { relay(event); }
     }
+    script.onerror = (event) => {
+        if (onerror) { onerror(event); }
+        console.log('error loading module ' + fn);
+    }    
     document.head.appendChild(script);
-    console.log('loaded module ' + fn);
 }
 
 // load snd-1.js for midi playback
 abc2svg.loadjs("snd-1.js", function () {
+    console.log("snd-1.js loaded successfully");
     play.abcplay = AbcPlay({
-        onend: {},
-        onnote: {},
+        onend: () => console.log("Playback ended"),
+        onnote: note => console.log("Playing note:", note),
     });
 });
 
@@ -35,21 +38,28 @@ window.addEventListener('message', event => {
         if (abc2svg) {
             let abc_images = '';
             const user = {
-                img_out: s => abc_images += s,
+                img_out: s => { abc_images += s; },
                 imagesize: 'width="100%"',
-                errmsg: (msg, line, col) => {
-                    vscode.postMessage({ command: 'error', message: msg, line, col });
-                }
+                errmsg: (msg, line, col) => { vscode.postMessage({ command: 'error', message: msg, line, col }); }
             };
+            
+            function renderAbc(content, div) {
+                console.log('rendering ABC content');
+                abc.tosvg('abc', content);
+                div.innerHTML = abc_images;
+                if (abc_images === '') {
+                    console.log('no images generated');
+                }
+            }
 
-            abcEngine = new abc2svg.Abc(user);
+            abc = new abc2svg.Abc(user);
             if (abc2svg.modules.load(content, () => {
-                abcEngine.tosvg('abc', content);
-                div.innerHTML = abc_images;
+                console.log('rendering after loading modules');
+                renderAbc(content, div, abc_images);
             }, console.error)) {
-                // modules were already loaded, callback won't be called
-                abcEngine.tosvg('abc', content);
-                div.innerHTML = abc_images;
+                // modules were already loaded, callback won't be called, so call it manually
+                console.log('rendering when modules.load returns true');
+                renderAbc(content, div, abc_images);
             }
         }
     }
@@ -58,17 +68,17 @@ window.addEventListener('message', event => {
 // implement playback
 document.getElementById('play-button').addEventListener('click', () => {
     console.log('clicked on play');
-    console.log(play.abcplay);
-    console.log(abc2svg);
-    console.log(abc2svg?.snd)
-    if (!player && abc2svg?.snd) {
-        console.log('creating player');
-        const abc = document.getElementById('sheet').innerText;
-        player = new abc2svg.snd(abc);
-    }
     if (play.abcplay) {
         console.log('launching play');
-        player.play();
+        console.log(abc.tunes);
+
+        // Get the start and end of the tune
+        const symbols = abc.tunes[2]; // Assuming the first tune
+        const startSymbol = symbols[0]; // First symbol of the tune
+        const endSymbol = symbols[symbols.length - 1]; // Last symbol of the tune
+
+        // Play the tune from start to end
+        play.abcplay.play(startSymbol, endSymbol);
     }
 });
 
