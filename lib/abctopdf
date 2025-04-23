@@ -46,7 +46,7 @@ else
 	fi
 fi
 # (sorted from fastest to slowest in ARM machines)
-for c in qjs jsc js115 js102 d8 node end; do
+for c in qjs jsc js128 js115 js102 d8 node end; do
 	if [ $c = 'end' ]; then
 		echo "$0: could not find a javascript interpreter - abort"
 		exit 1
