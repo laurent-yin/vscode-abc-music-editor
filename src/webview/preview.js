@@ -1,6 +1,7 @@
 const vscode = acquireVsCodeApi();
 let play = {};
 let abc;
+let user;
 
 // callback called by abc2svg to load the modules it needs as part of its processing
 abc2svg.loadjs = function (fn, relay, onerror) {
@@ -37,10 +38,11 @@ window.addEventListener('message', event => {
 
         if (abc2svg) {
             let abc_images = '';
-            const user = {
+            user = {
                 img_out: s => { abc_images += s; },
                 imagesize: 'width="100%"',
-                errmsg: (msg, line, col) => { vscode.postMessage({ command: 'error', message: msg, line, col }); }
+                errmsg: (msg, line, col) => { vscode.postMessage({ command: 'error', message: msg, line, col }); },
+                page_format: true
             };
             
             function renderAbc(content, div) {
