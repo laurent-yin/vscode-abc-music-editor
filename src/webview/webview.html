@@ -7,6 +7,7 @@
 	<style>
 	  .selMarker { fill: #d00000; fill-opacity: 0; z-index: 15; }
 	  #play-button { margin: 10px; padding: 6px 12px; font-size: 14px; }
+	  svg { display: block; } /* important to remove white bands between each svg block */
 	</style>
     <script>
       window.baseUri = '__BASE_URI__';
@@ -15,6 +16,7 @@
   </head>
   <body>
 	<button id="play-button">Play</button>
+	<!-- <div id="sheet" style="border:1px solid black;	width:900px; height:1200px;padding:0px"></div> -->
 	<div id="sheet"></div>
 	<script src="__BASE_URI__/src/webview/preview.js"></script>
   </body>
