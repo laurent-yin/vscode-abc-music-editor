@@ -1,5 +1,6 @@
 const vscode = acquireVsCodeApi();
 let abc;
+let currentAbcContent = ''; // Store the current ABC text to detect changes
 let user; // IMPORTANT: user needs to be in the global scope for some modules to work properly (e.g. page module)
 
 // variables needed for playback
@@ -37,7 +38,7 @@ abc2svg.loadjs("snd-1.js", function () {
 window.addEventListener('message', event => {
     const msg = event.data;
     if (msg.command === 'render') {
-        const content = msg.content;
+        const content = currentAbcContent = msg.content;
         const div = document.getElementById('sheet');
         div.innerHTML = '';
 
@@ -81,6 +82,24 @@ document.addEventListener('click', event => {
             vscode.postMessage({ command: 'selection', start: +match[1], stop: +match[2] });
         }
     }
+});
+
+// Open the ABC in Michael Eskin's ABC Editor in a browser
+// This is sometimes useful for some practice features that are not yet implemented here
+document.getElementById('open-web').addEventListener('click', () => {
+    // Dynamically construct the URL
+    const baseUrl = "https://michaeleskin.com/abctools/abctools.html";
+	const abcContent = LZString.compressToEncodedURIComponent(currentAbcContent);
+    const queryParams = new URLSearchParams({
+        lzw: abcContent,
+        editor: 1
+    });
+    const url = `${baseUrl}?${queryParams.toString()}`;
+
+	vscode.postMessage({
+		command: "openLink",
+		url: url
+	  });
 });
 
 /** PLAYBACK IMPLEMENTATION, WORK IN PROGRESS **/

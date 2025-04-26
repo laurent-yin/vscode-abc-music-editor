@@ -33,6 +33,11 @@
 				}
 			}
 		],
+		"configurationDefaults": {
+			"[abc]": {
+				"editor.wordBasedSuggestions": "off"
+			}
+		},
 		"menus": {
 			"editor/title": [
 				{
@@ -57,7 +62,7 @@
 			{
 				"language": "abc",
 				"scopeName": "source.abc",
-				"path": "./syntaxes/abc.tmGrammar.json"
+				"path": "./language/abc.tmGrammar.json"
 			}
 		],
 		"snippets": [
@@ -68,13 +73,14 @@
 		],
 		"webviewResources": [
 			"lib/**",
-			"src/webview/**"
+			"src/webview/**",
+			"out/lib/**"
 		]
 	},
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
 		"compile": "tsc -p ./ && npm run copy-assets",
-		"copy-assets": "cpx lib/*.* out/lib",
+		"copy-assets": "cpx lib/*.* out/lib && cpx node_modules/lz-string/libs/lz-string.min.js out/lib",
 		"lint": "eslint src --ext ts",
 		"watch": "tsc -watch -p ./",
 		"pretest": "npm run compile && npm run lint",
@@ -89,5 +95,8 @@
 		"eslint": "^9.25.0",
 		"typescript": "^5.8.3",
 		"vscode-test": "^1.6.1"
+	},
+	"dependencies": {
+		"lz-string": "^1.5.0"
 	}
 }

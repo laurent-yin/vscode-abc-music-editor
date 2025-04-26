@@ -7,26 +7,64 @@ let panel: vscode.WebviewPanel | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
 	try {
-		// Preview command
+		/* Show the music score on a separate webview panel */
 		let showMusicCommand = vscode.commands.registerCommand('vscode-abc-music-editor.showMusicsheet', () => showMusicPreview(context));
-	
+		context.subscriptions.push(showMusicCommand);
+		
+		// Listen for text document changes to refresh the preview
+		context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(handleTextDocumentChange));
+
+		/* Smart editing commands to auto-close double quotes when adding chords.
+		 There is a VS code configuration that would do almost that but it doesn't work if you're inserting it to the right of some text */
+		const smartQuoteCommand = vscode.commands.registerCommand('abc.smartQuote', insertSmartQuote);
+		context.subscriptions.push(smartQuoteCommand);
+		// Intercept typing `"` for .abc files and call the insertSmartQuote function
+		context.subscriptions.push(vscode.commands.registerCommand('type', handleTypeCommand));
+
+		/* Show ABC errors in the editor as squiggly lines */
 		diagnosticCollection = vscode.languages.createDiagnosticCollection('abc');
 		context.subscriptions.push(diagnosticCollection);
-		context.subscriptions.push(showMusicCommand);
-	
-		// automatically open preview
-		showMusicPreview(context);
-	
-		// show errors and refresh preview whenever the text changes
-		vscode.workspace.onDidChangeTextDocument(eventArgs => {
-			if (eventArgs.document.languageId === "abc") {
-				postAbcToWebview(eventArgs.document);
-			}
-		});
 	} catch (error) {
 		console.error(error);		
 	}
 }
+
+/* Facilitate adding chords to an existing melody by auto-closing double quotes when we type them next to a character */
+// This function will be invoked to insert quotes
+async function insertSmartQuote() {
+	const editor = vscode.window.activeTextEditor;
+	if (!editor || editor.document.languageId !== 'abc') return;
+  
+	const pos = editor.selection.active;
+  
+	await editor.edit(editBuilder => {
+	  editBuilder.insert(pos, '""');
+	});
+  
+	const newPos = pos.translate(0, 1);
+	editor.selection = new vscode.Selection(newPos, newPos);
+}
+  
+// Function to handle typing and insert smart quotes
+async function handleTypeCommand(args: { text: string }) {
+	const editor = vscode.window.activeTextEditor;
+	if (args.text === '"' && editor?.document.languageId === 'abc') {
+	  // Call the insertSmartQuote method here
+	  vscode.commands.executeCommand('abc.smartQuote');
+	} else {
+	  // Default behavior
+	  vscode.commands.executeCommand('default:type', args);
+	}
+}
+  
+  // Function to handle text document changes
+async function handleTextDocumentChange(e: vscode.TextDocumentChangeEvent) {
+	if (e.document.languageId !== 'abc') return;
+
+	// show errors and refresh preview whenever the text changes
+	postAbcToWebview(e.document);
+}
+  
 
 function postAbcToWebview(document: vscode.TextDocument) {
 	if (!panel) return;
@@ -55,7 +93,8 @@ function showMusicPreview(context: vscode.ExtensionContext) {
 		retainContextWhenHidden: true,
 		localResourceRoots: [
 			vscode.Uri.file(path.join(context.extensionPath, 'lib')),
-			vscode.Uri.file(path.join(context.extensionPath, 'src', 'webview'))
+			vscode.Uri.file(path.join(context.extensionPath, 'src', 'webview')),
+			vscode.Uri.file(path.join(context.extensionPath, 'out', 'lib'))
 		]
 	});
 	
@@ -69,6 +108,7 @@ function showMusicPreview(context: vscode.ExtensionContext) {
     panel.webview.html = getWebviewHtml(baseUri);
 
 	// TODO sometimes not ready to accept messages at this point
+	console.log("Sending ABC to webview");
 	postAbcToWebview(editor.document)
 
 	// handle messages from the webview
@@ -79,6 +119,11 @@ function showMusicPreview(context: vscode.ExtensionContext) {
 				return;
 			case 'error':
 				showDiagnostics(message.message, message.line, message.col);
+				return;
+			case 'openLink':
+				if (message.url) {
+					vscode.env.openExternal(vscode.Uri.parse(message.url));
+				}
 				return;
 		}
 	}, undefined, context.subscriptions);

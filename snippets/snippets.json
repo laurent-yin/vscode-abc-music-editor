@@ -1,6 +1,6 @@
 {
 	"Insert ABC Header": {
-		"prefix": "abc-header",
+		"prefix": "header-abc",
 		"body": [
 			"X:1",
       "%%topmargin 0",
@@ -17,7 +17,7 @@
 		"description": "Insert ABC Header"
     },
     "Insert ABC style directives": {
-        "prefix": "abc-style",
+        "prefix": "style-abc",
 		"body": [
         "%%partsfont Times-BoldItalic 15 box",
         "%%gchordfont Helvetica-BoldItalic 10",
@@ -34,5 +34,47 @@
         "%%keywarn 0"
         ],
      "description": "Insert style directives for ABC files"
+    },
+    "Chord": {
+        "prefix": "c",
+		"body": [
+        "\"$1\"${2:Z} "
+        ],
+     "description": "Insert Chord"
+    },
+    "Major Chord": {
+        "prefix": "cM",
+		"body": [
+        "\"${1|A,Bb,B,C,C#,Db,D,Eb,E,F,F#,Gb,G,G#|}\"${2:Z} "
+        ],
+     "description": "Insert a Major Chord"
+    },
+    "Minor Chord": {
+        "prefix": "cm",
+		"body": [
+        "\"${1|A,Bb,B,C,C#,Db,D,Eb,E,F,F#,Gb,G,G#|}m\"${2:Z} "
+        ],
+     "description": "Insert a Minor Chord"
+    },
+    "7th Chord": {
+        "prefix": "c7",
+		"body": [
+        "\"${1|A,Bb,B,C,C#,Db,D,Eb,E,F,F#,Gb,G,G#|}7\"${2:Z} "
+        ],
+     "description": "Insert a 7th Chord"
+    },
+    "Diminished Chord": {
+        "prefix": "cdim",
+		"body": [
+        "\"${1|A,Bb,B,C,C#,Db,D,Eb,E,F,F#,Gb,G,G#|}°\"${2:Z} "
+        ],
+     "description": "Insert a Diminished Chord"
+    },
+    "Half-Diminished Chord": {
+        "prefix": "chdim",
+		"body": [
+        "\"${1|A,Bb,B,C,C#,Db,D,Eb,E,F,F#,Gb,G,G#|}m7b5\"${2:Z} "
+        ],
+     "description": "Insert a Half-Diminished Chord"
     }
 }
