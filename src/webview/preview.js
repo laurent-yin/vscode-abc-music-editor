@@ -6,6 +6,7 @@ let user; // IMPORTANT: user needs to be in the global scope for some modules to
 // variables needed for playback
 let play = {},
 tunes,
+syms,				// music symbol at source index
 selx = [0, 0], // (start, end) of the selection
 selx_sav = []; // (saved while playing/printing)
 
@@ -48,11 +49,28 @@ window.addEventListener('message', event => {
                 img_out: s => { abc_images += s; },
                 imagesize: 'width="100%"',
                 errmsg: (msg, line, col) => { vscode.postMessage({ command: 'error', message: msg, line, col }); },
+				anno_stop: function(type, start, stop, x, y, w, h, s) {
+					if (["beam", "slur", "tuplet"].indexOf(type) >= 0)
+						return
+					syms[start] = s		// music symbol
+			
+					// create a rectangle
+					abc.out_svg('<rect class="abcr _' + start +
+						'_" x="');
+					abc.out_sxsy(x, '" y="', y);
+					abc.out_svg('" width="' + w.toFixed(2) +
+						'" height="' + abc.sh(h).toFixed(2) + '"/>\n')},
                 page_format: true
             };
             
             function renderAbc(content, div) {
                 console.log('rendering ABC content');
+
+				// TODO: remove this after finishing debugging fit2box
+				// let cfmt = abc.cfmt();
+				// cfmt.pagewidth = 600;
+				// cfmt.pageheight = 800;
+
                 abc.tosvg('abc', content);
                 div.innerHTML = abc_images;
                 if (abc_images === '') {
@@ -60,6 +78,9 @@ window.addEventListener('message', event => {
                 }
             }
 
+			// reset selection and symbols before re-render
+			selx[0] = selx[1] = 0;
+			syms = [];
             abc = new abc2svg.Abc(user);
             if (abc2svg.modules.load(content, () => {
                 console.log('rendering after loading modules');
