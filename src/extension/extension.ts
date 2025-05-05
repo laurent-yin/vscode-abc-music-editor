@@ -94,7 +94,8 @@ function showMusicPreview(context: vscode.ExtensionContext) {
 		localResourceRoots: [
 			vscode.Uri.file(path.join(context.extensionPath, 'lib')),
 			vscode.Uri.file(path.join(context.extensionPath, 'src', 'webview')),
-			vscode.Uri.file(path.join(context.extensionPath, 'out', 'lib'))
+			vscode.Uri.file(path.join(context.extensionPath, 'out', 'lib')),
+			vscode.Uri.file(path.join(context.extensionPath, 'out', 'webview'))
 		]
 	});
 	

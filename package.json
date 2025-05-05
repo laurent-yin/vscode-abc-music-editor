@@ -74,7 +74,8 @@
 		"webviewResources": [
 			"lib/**",
 			"src/webview/**",
-			"out/lib/**"
+			"out/lib/**",
+			"out/webview/**"
 		]
 	},
 	"scripts": {
