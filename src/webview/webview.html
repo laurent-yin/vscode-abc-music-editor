@@ -5,21 +5,51 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>ABC Preview</title>
 	<style>
+	  /* 
+	   * selMarker - Used for highlighting selected musical elements in the rendered score
+	   * The fill-opacity: 0 makes it initially invisible, but it becomes visible when selected
+	   */
 	  .selMarker { fill: #d00000; fill-opacity: 0; z-index: 15; }
 	  #play-button { margin: 10px; padding: 6px 12px; font-size: 14px; }
+	  /* Block display for SVG prevents gaps between musical lines */
 	  svg { display: block; } /* important to remove white bands between each svg block */
 	</style>
     <script>
+      /* 
+       * baseUri is replaced by the extension with the actual URI to access resources
+       * This is used to load scripts and other resources with the correct path
+       */
       window.baseUri = '__BASE_URI__';
     </script>
+	<!-- 
+	 * abc2svg-1.js - Main library that converts ABC notation to SVG graphics
+	 * This library provides the core functionality for rendering musical notation
+	 -->
 	<script src="__BASE_URI__/lib/abc2svg-1.js"" type="text/javascript"></script>
+	<!-- 
+	 * lz-string.min.js - Compression library used when sharing ABC content with external editor
+	 * Used by the "Open in Michael Eskin's Web Editor" button to compress ABC data for URL parameters
+	 -->
 	<script src="__BASE_URI__/out/lib/lz-string.min.js"" type="text/javascript"></script>
   </head>
   <body>
+	<!-- Play button that triggers MIDI playback of the ABC music -->
 	<button id="play-button">Play</button>
+	<!-- Button to open the current ABC content in an external web editor -->
 	<button id="open-web">Open in Michael Eskin's Web Editor</button>
-	<!-- <div id="sheet" style="border:1px solid black;	width:600px; height:800px;padding:0px"></div>-->
+	<!-- 
+	 * The #sheet div is the container where all SVG music notation will be rendered
+	 * abc.tosvg() will generate SVG content that gets inserted here via abc_images
+	 * Each musical line/staff typically becomes a separate SVG element
+	 -->
 	<div id="sheet"></div>
+	<!-- 
+	 * preview.js - Compiled from preview.ts, contains all the logic for:
+	 * 1. Rendering ABC notation to SVG
+	 * 2. Handling playback
+	 * 3. User interactions with the score
+	 * 4. Communication with the VS Code extension
+	 -->
 	<script src="__BASE_URI__/out/webview/preview.js"></script>
   </body>
   </html>

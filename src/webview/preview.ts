@@ -1,3 +1,12 @@
+/**
+ * This file handles the conversion of ABC notation to SVG graphics in the webview
+ * Key steps in the process:
+ * 1. Receive ABC content from the VS Code extension
+ * 2. Parse the ABC content using abc2svg library
+ * 3. Render the SVG graphics and add them to the DOM
+ * 4. Handle user interactions like playback and selection
+ */
+
 // Define interfaces for the VS Code API and abc2svg
 declare function acquireVsCodeApi(): {
     postMessage: (message: any) => void;
@@ -7,28 +16,93 @@ declare function acquireVsCodeApi(): {
 
 // Define interfaces for abc2svg
 interface ABC2SVG {
+    /**
+     * Loads JavaScript modules needed by abc2svg during rendering
+     * @param fn Filename of the module to load
+     * @param relay Callback function on successful load
+     * @param onerror Callback function on error
+     */
     loadjs: (fn: string, relay?: (event?: any) => void, onerror?: (event?: any) => void) => void;
+    
+    /** Constructor for the main ABC parsing/rendering instance */
     Abc: new (user: User) => AbcInstance;
+    
+    /** Module handling system for loading optional abc2svg modules */
     modules: {
         load: (content: string, callback: () => void, errorCallback: (error: any) => void) => boolean;
     };
+    
+    /** Constants used by abc2svg */
     C: any;
 }
 
 interface AbcInstance {
+    /**
+     * Converts ABC notation to SVG
+     * @param id Identifier for the tune
+     * @param content ABC notation to convert
+     * Output: Calls user.img_out() for each SVG section generated
+     */
     tosvg: (id: string, content: string) => void;
+    
+    /**
+     * Outputs raw SVG content
+     * @param s SVG string to output
+     * Output: Calls user.img_out() with the SVG string
+     */
     out_svg: (s: string) => void;
+    
+    /**
+     * Outputs SVG coordinates
+     * @param x X coordinate
+     * @param y String to insert between x and sy
+     * @param sy Y coordinate
+     * Output: Formats coordinates for SVG elements
+     */
     out_sxsy: (x: number, y: string, sy: number) => void;
+    
+    /**
+     * Adjusts height in the SVG coordinate system
+     * @param h Height value to adjust
+     * @returns Adjusted height value
+     */
     sh: (h: number) => number;
+    
+    /** Gets the current formatting parameters */
     cfmt: () => any;
+    
+    /** Array of tunes in the ABC content */
     tunes: Array<any>;
 }
 
 interface User {
+    /**
+     * Callback to handle image output
+     * @param s SVG string to append to the output
+     * Output: Collects SVG content that will be added to the DOM
+     */
     img_out: (s: string) => void;
+    
+    /** Image size attribute for SVG tags */
     imagesize: string;
+    
+    /**
+     * Error message handler
+     * @param msg Error message
+     * @param line Line number where error occurred
+     * @param col Column number where error occurred
+     * Output: Sends error messages back to VS Code
+     */
     errmsg: (msg: string, line?: number, col?: number) => void;
+    
+    /**
+     * Annotation callback for creating interactive elements
+     * Creates clickable rectangles around musical elements
+     * Output: Generates SVG rectangles that can be used for selection
+     */
     anno_stop?: (type: string, start: number, stop: number, x: number, y: number, w: number, h: number, s: any) => void;
+    
+    /** Controls if page formatting should be applied */
     page_format?: boolean;
 }
 
@@ -79,7 +153,10 @@ let syms: any[] = [];   // Music symbol at source index
 const selx: [number, number] = [0, 0]; // (start, end) of the selection
 const selx_sav: number[] = []; // (saved while playing/printing)
 
-// Callback called by abc2svg to load the modules it needs as part of its processing
+/**
+ * Dynamic script loader used by abc2svg to load required modules
+ * Output: Injects <script> tags into document.head to load additional functionality
+ */
 abc2svg.loadjs = function(fn: string, relay?: (event?: any) => void, onerror?: (event?: any) => void): void {
     const script = document.createElement('script');
     script.src = `${(window as any).baseUri}/lib/${fn}`;
@@ -115,26 +192,60 @@ window.addEventListener('message', event => {
         div.innerHTML = '';
 
         if (abc2svg) {
+            // This variable collects all SVG output generated during the rendering process
+            // It will contain multiple SVG elements, typically one per staff/line of music
             let abc_images = '';
+            
+            // Configure the user object with callbacks that abc2svg will use during rendering
             user = {
+                // img_out is called by abc2svg for each SVG snippet it generates
+                // These snippets are accumulated in abc_images and later inserted into the DOM
                 img_out: (s: string) => { abc_images += s; },
+                
+                // Set SVG image size to be responsive
                 imagesize: 'width="100%"',
-                errmsg: (msg: string, line?: number, col?: number) => { vscode.postMessage({ command: 'error', message: msg, line, col }); },
+                
+                // Forward error messages to VS Code
+                errmsg: (msg: string, line?: number, col?: number) => { 
+                    vscode.postMessage({ command: 'error', message: msg, line, col }); 
+                },
+                
+                // anno_stop creates interactive rectangles for each musical element
+                // Output: Generates invisible SVG rectangles that can be used for selection/interaction
                 anno_stop: function(type: string, start: number, stop: number, x: number, y: number, w: number, h: number, s: any) {
+                    // Skip certain element types
                     if (["beam", "slur", "tuplet"].indexOf(type) >= 0)
                         return;
-                    syms[start] = s;	// Music symbol
+                    
+                    // Store the music symbol for later use (e.g., playback)
+                    syms[start] = s;
             
-                    // Create a rectangle
+                    // Create a rectangle element for this musical symbol
+                    // This rectangle will be invisible initially but can be highlighted when selected
                     abc.out_svg('<rect class="abcr _' + start +
                         '_" x="');
+                    // Position the rectangle using the symbol's coordinates
                     abc.out_sxsy(x, '" y="', y);
+                    // Set the rectangle's dimensions
                     abc.out_svg('" width="' + w.toFixed(2) +
                         '" height="' + abc.sh(h).toFixed(2) + '"/>\n');
                 },
+                
+                // Enable page formatting
                 page_format: true
             };
             
+            /**
+             * Renders ABC notation to SVG
+             * @param abcContent ABC notation string to render
+             * @param div DOM element to insert the resulting SVG into
+             * 
+             * Workflow:
+             * 1. abc.tosvg() parses the ABC content and generates SVG
+             * 2. During parsing, it calls user.img_out() for each SVG element
+             * 3. These elements are collected in abc_images
+             * 4. The collected SVG content is then inserted into the DOM
+             */
             function renderAbc(abcContent: string, div: HTMLDivElement): void {
                 console.log('rendering ABC content');
 
@@ -143,8 +254,13 @@ window.addEventListener('message', event => {
                 // cfmt.pagewidth = 600;
                 // cfmt.pageheight = 800;
 
+                // This is the main call that starts the rendering process
+                // It will call user.img_out() multiple times with SVG content
                 abc.tosvg('abc', abcContent);
+                
+                // Insert all the collected SVG content into the DOM
                 div.innerHTML = abc_images;
+                
                 if (abc_images === '') {
                     console.log('no images generated');
                 }
@@ -153,12 +269,18 @@ window.addEventListener('message', event => {
             // Reset selection and symbols before re-render
             selx[0] = selx[1] = 0;
             syms = [];
+            
+            // Create a new ABC instance with our user callbacks
             abc = new abc2svg.Abc(user);
+            
+            // Try to load any modules that might be needed based on the ABC content
+            // This checks for special annotations in the ABC that require additional modules
             if (abc2svg.modules.load(abcContent, () => {
                 console.log('rendering after loading modules');
                 renderAbc(abcContent, div);
             }, console.error)) {
-                // Modules were already loaded, callback won't be called, so call it manually
+                // If modules.load returns true, it means no modules needed loading
+                // or they were already loaded, so we can render immediately
                 console.log('rendering when modules.load returns true');
                 renderAbc(abcContent, div);
             }
@@ -166,7 +288,10 @@ window.addEventListener('message', event => {
     }
 });
 
-// TODO when clicking on a note, it selects the corresponding ABC
+/**
+ * Click event handler for the document
+ * Detects clicks on musical elements and sends selection info back to VS Code
+ */
 document.addEventListener('click', event => {
     const target = event.target as Element;
     
@@ -180,6 +305,8 @@ document.addEventListener('click', event => {
         cls = String(target?.className || '');
     }
     
+    // If a selection marker was clicked, extract the start/stop positions
+    // and send them back to VS Code to highlight the corresponding ABC text
     if (cls.startsWith('selMarker')) {
         const match = cls.match(/_(\d+)-(\d+)_/);
         if (match) {
@@ -188,12 +315,14 @@ document.addEventListener('click', event => {
     }
 });
 
-// Open the ABC in Michael Eskin's ABC Editor in a browser
-// This is sometimes useful for some practice features that are not yet implemented here
+/**
+ * Event handler for the "Open in Web Editor" button
+ * Compresses the current ABC content and opens it in Michael Eskin's online editor
+ */
 document.getElementById('open-web')?.addEventListener('click', () => {
     // Dynamically construct the URL
     const baseUrl = "https://michaeleskin.com/abctools/abctools.html";
-    // Using LZString from the imported library
+    // Using LZString from the imported library to compress the ABC content
     const abcContent = LZString.compressToEncodedURIComponent(currentAbcContent);
     const queryParams = new URLSearchParams({
         lzw: abcContent,
@@ -201,6 +330,7 @@ document.getElementById('open-web')?.addEventListener('click', () => {
     });
     const url = `${baseUrl}?${queryParams.toString()}`;
 
+    // Send a message to VS Code to open the URL
     vscode.postMessage({
         command: "openLink",
         url: url
@@ -209,6 +339,10 @@ document.getElementById('open-web')?.addEventListener('click', () => {
 
 /** PLAYBACK IMPLEMENTATION, WORK IN PROGRESS **/
 
+/**
+ * Event handler for the Play button
+ * Initiates playback of the current ABC tune
+ */
 document.getElementById('play-button')?.addEventListener('click', () => {
     console.log('clicked on play');
     if (play.abcplay) {
@@ -217,12 +351,15 @@ document.getElementById('play-button')?.addEventListener('click', () => {
     }
 });
 
-// Start playing
-// -1: All (removed)
-// 0: Tune
-// 1: Selection
-// 2: Loop
-// 3: Continue
+/**
+ * Start playing the ABC tune
+ * @param what Playback mode: 0=Whole tune, 1=Selection, 2=Loop, 3=Continue
+ * 
+ * Workflow:
+ * 1. Determine which musical symbols to play based on the mode and selection
+ * 2. Configure the playback state
+ * 3. Call play.abcplay.play() with the start and end symbols
+ */
 function play_tune(what: number): void {
     if (!abc)
         return;			// No generation yet
@@ -328,16 +465,22 @@ function play_tune(what: number): void {
         return sym;
     }
 
-    // Start playing
+    /**
+     * Start playback with the given start and end symbols
+     * @param si Start symbol
+     * @param ei End symbol
+     * Output: Initiates MIDI playback through the AbcPlay instance
+     */
     function play_start(si: any, ei: any): void {
         if (!si)
             return;
-        selx_sav[0] = selx[0];		// Remove the colors
+        selx_sav[0] = selx[0];		// Save current selection
         selx_sav[1] = selx[1];
-        setsel(0, 0);
+        setsel(0, 0);               // Clear selection during playback
         setsel(1, 0);
 
         play.stop = 0;
+        // Call the AbcPlay instance to start playback
         play.abcplay?.play(si, ei, play.repv);
     }
 
@@ -411,7 +554,13 @@ function play_tune(what: number): void {
     play_start(si, ei);
 }
 
-// Set/clear a selection
+/**
+ * Set or clear a selection highlight
+ * @param idx Selection index (0=start, 1=end)
+ * @param v Element index to select, or 0 to clear
+ * 
+ * Output: Changes the fillOpacity of SVG elements to highlight/unhighlight
+ */
 function setsel(idx: number, v: number): void {
     const old_v = selx[idx];
 
@@ -419,6 +568,7 @@ function setsel(idx: number, v: number): void {
         return;
         
     if (old_v) {
+        // Remove highlighting from previously selected elements
         const elts = document.getElementsByClassName('_' + old_v + '_');
         let i = elts.length;
         while (--i >= 0)
@@ -426,6 +576,7 @@ function setsel(idx: number, v: number): void {
     }
     
     if (v) {
+        // Add highlighting to newly selected elements
         const elts = document.getElementsByClassName('_' + v + '_');
         let i = elts.length;
         while (--i >= 0)
@@ -435,7 +586,12 @@ function setsel(idx: number, v: number): void {
     selx[idx] = v;
 }
 
-// Playing is finished
+/**
+ * Callback when playback is finished
+ * @param repv Repeat variant number
+ * 
+ * Output: Updates UI state and restores previous selection
+ */
 function endplay(repv?: number): void {
     if (play.loop && play.abcplay) {
         play.abcplay.play(play.si, play.ei);
