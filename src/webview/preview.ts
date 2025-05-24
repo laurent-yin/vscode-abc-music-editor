@@ -214,11 +214,15 @@ window.addEventListener('message', event => {
                 // Output: Generates invisible SVG rectangles that can be used for selection/interaction
                 anno_stop: function(type: string, start: number, stop: number, x: number, y: number, w: number, h: number, s: any) {
                     // Skip certain element types
+                    
                     if (["beam", "slur", "tuplet"].indexOf(type) >= 0)
                         return;
                     
                     // Store the music symbol for later use (e.g., playback)
                     syms[start] = s;
+                    
+                    if (["note", "rest", "Zrest"].indexOf(type) == -1)
+                        return;
             
                     // Create a rectangle element for this musical symbol
                     // This rectangle will be invisible initially but can be highlighted when selected
@@ -261,6 +265,9 @@ window.addEventListener('message', event => {
                 // Insert all the collected SVG content into the DOM
                 div.innerHTML = abc_images;
                 
+                // Set up selection overlay after rendering
+                setupSelectionOverlay();
+                
                 if (abc_images === '') {
                     console.log('no images generated');
                 }
@@ -289,6 +296,306 @@ window.addEventListener('message', event => {
 });
 
 /**
+ * Add necessary SVG overlay elements for selection
+ * This should be called once after the ABC content is rendered
+ */
+function setupSelectionOverlay(): void {    // Add CSS to the document for selection styling
+    if (!document.getElementById('selection-styles')) {        const style = document.createElement('style');
+        style.id = 'selection-styles';
+        style.textContent = `/*            .staff-dimming-overlay {
+                fill: #888888;
+                fill-opacity: 0;
+                pointer-events: none;
+                transition: fill-opacity 0.2s ease-in-out;
+            }
+              .selection-active .staff-dimming-overlay {
+                fill-opacity: 0;
+            }*/
+              .selected-area {
+                fill: transparent;
+                pointer-events: none;
+                stroke: #0078d7;
+                stroke-width: 2;
+                stroke-opacity: 0.8;
+                transition: all 0.1s ease-out;
+            }
+            
+            /* Make selected notes more visible by increasing opacity */
+            .abcr {
+                transition: opacity 0.1s ease-in-out;
+            }
+            
+            /* Ensure selection highlights span full height */
+            svg {
+                position: relative;
+            }            /* Visual indicator for selected notes */
+            .abcr.selected {
+                opacity: 1 !important;
+                stroke: #ff0000;
+                stroke-width: 1.5;
+                stroke-opacity: 1;
+                fill: rgba(255, 0, 0, 0.1) !important; /* Light red highlighting for selected notes */
+            }
+            
+            /* When selection is active, dim unselected notes */
+            .selection-active .abcr:not(.selected) {
+                opacity: 0.3;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // Get all music SVG elements
+    const svgElements = document.querySelectorAll('#sheet svg');
+    
+    // For each SVG (typically one per staff line)
+    /*svgElements.forEach((svg, index) => {
+        // Create the dimming overlay for the entire staff if it doesn't exist
+        if (!svg.querySelector('.staff-dimming-overlay')) {
+            const viewBox = svg.getAttribute('viewBox');
+            if (!viewBox) return;
+            
+            const [, , width, height] = viewBox.split(' ').map(parseFloat);
+            
+            const dimmingOverlay = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            dimmingOverlay.setAttribute('class', 'staff-dimming-overlay staff-' + index);
+            dimmingOverlay.setAttribute('x', '0');
+            dimmingOverlay.setAttribute('y', '0');
+            dimmingOverlay.setAttribute('width', width.toString());
+            dimmingOverlay.setAttribute('height', height.toString());
+            
+            // Add to the SVG at the beginning so it's behind all content
+            svg.insertBefore(dimmingOverlay, svg.firstChild);
+        }
+    });*/
+}
+
+/**
+ * Manages the visual representation of selected notes using continuous blocks
+ */
+const selectionManager = {
+    active: false,
+    startIdx: 0,
+    endIdx: 0,
+    selectedAreas: [] as SVGElement[], // Stores references to selected area elements
+    
+    /**
+     * Starts a new selection
+     * @param idx Index of the first element to select
+     */
+    start(idx: number): void {
+        if (!idx) return;
+        
+        this.clear(); // Clear any existing selection
+        this.active = true;
+        this.startIdx = idx;
+        this.endIdx = idx;
+        this.update();
+        
+        // Update selx array to maintain compatibility with playback
+        setsel(0, idx);
+        setsel(1, idx);
+        
+        // Send selection info to VS Code
+        vscode.postMessage({ 
+            command: 'selection', 
+            start: idx, 
+            stop: idx 
+        });
+    },
+    
+    /**
+     * Updates the end of the selection
+     * @param idx Index of the last element to select
+     */
+    end(idx: number): void {
+        if (!this.active || !idx) return;
+        
+        this.endIdx = idx;
+        this.update();
+        
+        // Update selx array
+        setsel(1, idx);
+        
+        // Send updated selection to VS Code
+        vscode.postMessage({ 
+            command: 'selection', 
+            start: this.startIdx, 
+            stop: this.endIdx
+        });
+    },
+    
+    /**
+     * Clears the current selection
+     */    clear(): void {
+        // Only proceed if there's an active selection
+        if (!this.active) return;
+        
+        this.active = false;
+        
+        // Remove selection-active class from body to hide dimming overlays
+        document.body.classList.remove('selection-active');
+        
+        // Remove any created selected area elements
+        this.selectedAreas.forEach(element => {
+            if (element && element.parentNode) {
+                element.parentNode.removeChild(element);
+            }
+        });
+        this.selectedAreas = [];
+        
+        // Reset selection state
+        const minIdx = Math.min(this.startIdx, this.endIdx);
+        const maxIdx = Math.max(this.startIdx, this.endIdx);
+          // Restore original appearance of all abcr elements in the selection range
+        for (let i = minIdx; i <= maxIdx; i++) {
+            const elements = document.getElementsByClassName('_' + i + '_');
+            for (let j = 0; j < elements.length; j++) {
+                (elements[j] as HTMLElement).classList.remove('selected');
+            }
+        }
+        
+        // Reset selection state
+        this.startIdx = 0;
+        this.endIdx = 0;
+        
+        // Clear selx array
+        selx[0] = 0;
+        selx[1] = 0;
+        
+        // Show all dimming overlays (they'll be hidden since selection is inactive)
+        document.querySelectorAll('.staff-dimming-overlay').forEach(overlay => {
+            overlay.setAttribute('fill-opacity', '0');
+        });
+    },
+    
+    /**
+     * Updates the visual representation of the selection
+     * Creates continuous blocks spanning the entire height of each affected staff
+     */    update(): void {
+        if (!this.active) return;
+        
+        // Get the min and max indices for selection
+        const minIdx = Math.min(this.startIdx, this.endIdx);
+        const maxIdx = Math.max(this.startIdx, this.endIdx);
+        
+        // Clear any previous selected areas
+        this.selectedAreas.forEach(element => {
+            if (element && element.parentNode) {
+                element.parentNode.removeChild(element);
+            }
+        });
+        this.selectedAreas = [];            // Remove 'selected' class from all notes first
+            document.querySelectorAll('.abcr').forEach(element => {
+                element.classList.remove('selected');
+            });
+        
+        // Add class to body to activate dimming overlays
+        document.body.classList.add('selection-active');
+        
+        // Find all staff SVGs that contain selected notes
+        const staffsWithSelection = new Map(); // Maps staff SVG to [minX, maxX] coordinates
+        
+        // Find left and right boundaries in each staff
+        for (let i = minIdx; i <= maxIdx; i++) {
+            const elements = document.getElementsByClassName('_' + i + '_');
+            for (let j = 0; j < elements.length; j++) {
+                const element = elements[j] as SVGRectElement;
+                
+                // Add 'selected' class to highlight this note in red
+                element.classList.add('selected');
+                
+                // Find the parent SVG
+                let parentSvg = element.parentElement;
+                while (parentSvg && parentSvg.tagName !== 'svg') {
+                    parentSvg = parentSvg.parentElement;
+                }
+                
+                if (parentSvg) {
+                    // Get x coordinate and width of this note
+                    const x = parseFloat(element.getAttribute('x') || '0');
+                    const width = parseFloat(element.getAttribute('width') || '0');
+                    
+                    // Store or update the min/max X coordinates for this staff
+                    if (!staffsWithSelection.has(parentSvg)) {
+                        staffsWithSelection.set(parentSvg, [x, x + width]);
+                    } else {
+                        const [minX, maxX] = staffsWithSelection.get(parentSvg);
+                        staffsWithSelection.set(parentSvg, [
+                            Math.min(minX, x),
+                            Math.max(maxX, x + width)
+                        ]);
+                    }
+                }
+            }
+        }          // Create selection blocks for each staff with selected notes
+        staffsWithSelection.forEach((xRange, svg) => {
+            // Get the viewBox to determine staff dimensions
+            const viewBox = svg.getAttribute('viewBox');
+            if (!viewBox) return;
+            
+            const [, , , height] = viewBox.split(' ').map(parseFloat);
+              // Get all selected notes in this staff to calculate the exact area to highlight
+            const selectedNotesInStaff = svg.querySelectorAll('.abcr.selected');
+            if (selectedNotesInStaff.length === 0) return;
+            
+            // Instead of creating a big rectangle spanning all notes, let's create a path that connects
+            // all the note rectangles for a more precise selection
+            const firstNote = selectedNotesInStaff[0] as SVGRectElement;            
+            
+            // Get the positions and dimensions of the first note
+            let minX = parseFloat(firstNote.getAttribute('x') || '0');
+            let maxX = minX + parseFloat(firstNote.getAttribute('width') || '0');
+            // Get the positions and dimensions of all notes to determine the exact bounding box
+            const minY = -height;
+            const maxY = 0;
+            
+            selectedNotesInStaff.forEach((noteElement: SVGRectElement) => {
+                const x: number = parseFloat(noteElement.getAttribute('x') || '0');
+                const width: number = parseFloat(noteElement.getAttribute('width') || '0');
+
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x + width);
+            });
+            
+            // Create a rectangle highlighting the selected area in this staff that matches 
+            // the exact position of the notes
+            const selectedArea = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            selectedArea.setAttribute('class', 'selected-area');
+            
+            // Use exact coordinates from the note rectangles (with a slight padding)
+            const padding = 2;
+            selectedArea.setAttribute('x', (minX - padding).toString());
+            selectedArea.setAttribute('y', (minY - padding).toString());
+            selectedArea.setAttribute('width', ((maxX - minX) + padding * 2).toString());
+            selectedArea.setAttribute('height', ((maxY - minY) + padding * 2).toString());
+
+            // Find the parent group that contains all the note rectangles
+            const noteParent = firstNote.parentElement;
+            if (!noteParent) return;
+
+            // Add the selection rectangle to the same parent as the notes
+            noteParent.insertBefore(selectedArea, noteParent.firstChild);
+            
+            this.selectedAreas.push(selectedArea);
+        });
+          // Set highlight on the selected notes for better visibility
+        for (let i = minIdx; i <= maxIdx; i++) {
+            const elements = document.getElementsByClassName('_' + i + '_');
+            for (let j = 0; j < elements.length; j++) {
+                (elements[j] as HTMLElement).classList.add('selected');
+            }
+        }
+    }
+};
+
+// Track mouse state for selection
+const mouseState = {
+    isSelecting: false,
+    lastIdx: 0
+};
+
+/**
  * Click event handler for the document
  * Detects clicks on musical elements and sends selection info back to VS Code
  */
@@ -312,6 +619,162 @@ document.addEventListener('click', event => {
         if (match) {
             vscode.postMessage({ command: 'selection', start: +match[1], stop: +match[2] });
         }
+    }
+});
+
+// Mouse down handler to start selection
+document.addEventListener('mousedown', event => {
+    const target = event.target as Element;
+    
+    // Handle SVG and HTML elements differently for className
+    let cls = '';
+    if (target instanceof SVGElement) {
+        cls = (target as SVGElementWithClassName)?.className?.baseVal || '';
+    } else {
+        cls = String(target?.className || '');
+    }
+    
+    // If a selection marker rectangle was clicked
+    if (cls.startsWith('abcr')) {
+        const match = cls.match(/_(\d+)_/);
+        if (match) {
+            const idx = +match[1];
+            mouseState.isSelecting = true;
+            mouseState.lastIdx = idx;
+            selectionManager.start(idx);
+            event.preventDefault();
+        }
+    } else if (selectionManager.active) {
+        // Only clear selection if clicking on the music sheet area but not on a note
+        // Check if the click is inside the sheet element but not on a button/control
+        const sheetElement = document.getElementById('sheet');
+        const isClickInsideSheet = sheetElement && sheetElement.contains(target);
+        const isClickOnControl = target.tagName === 'BUTTON' || 
+                                 target.closest('button') || 
+                                 target.id === 'play-button' ||
+                                 target.closest('#play-button');
+        
+        if (isClickInsideSheet && !isClickOnControl && !cls.includes('selected-area')) {
+            selectionManager.clear();
+        }
+    }
+});
+
+// Mouse move handler for extending selection
+document.addEventListener('mousemove', event => {
+    if (!mouseState.isSelecting) return;
+    
+    // Find element under the pointer
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    if (!element) return;
+    
+    let cls = '';
+    if (element instanceof SVGElement) {
+        cls = (element as SVGElementWithClassName)?.className?.baseVal || '';
+    } else {
+        cls = String(element?.className || '');
+    }
+    
+    if (cls.startsWith('abcr')) {
+        const match = cls.match(/_(\d+)_/);
+        if (match) {
+            const idx = +match[1];
+            if (idx !== mouseState.lastIdx) {
+                mouseState.lastIdx = idx;
+                selectionManager.end(idx);
+            }
+        }
+    } else {
+        // If moving over non-note element but still within selection area
+        // Try to find the closest note element in the direction of movement
+        
+        // Get all note elements
+        const noteElements = document.querySelectorAll('[class*="abcr"]');
+        if (noteElements.length === 0) return;
+        
+        // Find closest note by comparing positions
+        let closestElement = null;
+        let closestDistance = Infinity;
+        
+        for (let i = 0; i < noteElements.length; i++) {
+            const rect = noteElements[i].getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            
+            // Calculate distance to mouse position
+            const distance = Math.sqrt(
+                Math.pow(centerX - event.clientX, 2) + 
+                Math.pow(centerY - event.clientY, 2)
+            );
+            
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestElement = noteElements[i];
+            }
+        }
+        
+        // If we found a close note and it's reasonably near (within 100px)
+        if (closestElement && closestDistance < 100) {
+            cls = closestElement instanceof SVGElement 
+                ? (closestElement as SVGElementWithClassName)?.className?.baseVal || ''
+                : String(closestElement?.className || '');
+                
+            const match = cls.match(/_(\d+)_/);
+            if (match) {
+                const idx = +match[1];
+                if (idx !== mouseState.lastIdx) {
+                    mouseState.lastIdx = idx;
+                    selectionManager.end(idx);
+                }
+            }
+        }
+    }
+});
+
+// Mouse up handler to complete selection
+document.addEventListener('mouseup', () => {
+    mouseState.isSelecting = false;
+});
+
+// Keyboard shortcuts for selection
+document.addEventListener('keydown', (event) => {
+    // Ctrl/Cmd+A for "Select All"
+    if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+        event.preventDefault(); // Prevent default browser select all
+        
+        // Find the first and last note indices
+        const noteElements = document.querySelectorAll('[class*="abcr"]');
+        if (noteElements.length === 0) return;
+        
+        let firstIdx = Infinity;
+        let lastIdx = 0;
+        
+        noteElements.forEach(element => {
+            let cls = '';
+            if (element instanceof SVGElement) {
+                cls = (element as SVGElementWithClassName)?.className?.baseVal || '';
+            } else {
+                cls = String(element?.className || '');
+            }
+            
+            const match = cls.match(/_(\d+)_/);
+            if (match) {
+                const idx = +match[1];
+                firstIdx = Math.min(firstIdx, idx);
+                lastIdx = Math.max(lastIdx, idx);
+            }
+        });
+        
+        // Select all notes from first to last
+        if (firstIdx !== Infinity && lastIdx > 0) {
+            selectionManager.start(firstIdx);
+            selectionManager.end(lastIdx);
+        }
+    }
+    
+    // Escape key clears selection
+    if (event.key === 'Escape' && selectionManager.active) {
+        selectionManager.clear();
     }
 });
 
@@ -343,11 +806,15 @@ document.getElementById('open-web')?.addEventListener('click', () => {
  * Event handler for the Play button
  * Initiates playback of the current ABC tune
  */
-document.getElementById('play-button')?.addEventListener('click', () => {
+document.getElementById('play-button')?.addEventListener('click', (event) => {
     console.log('clicked on play');
+    // Prevent the click from triggering document click handler
+    event.stopPropagation();
+    
     if (play.abcplay) {
         console.log('launching play');
-        play_tune(0); // play the whole tune
+        // If there's an active selection, play that, otherwise play the whole tune
+        play_tune(selectionManager.active ? 1 : 0);
     }
 });
 
@@ -503,9 +970,7 @@ function play_tune(what: number): void {
     if (what == 2 && play.loop) {
         play_start(play.si, play.ei);
         return;
-    }
-
-    // Get the starting and ending play indexes, and start playing
+    }    // Get the starting and ending play indexes, and start playing
     let si, ei;
 
     if (what == 3 && play.stop && play.stop > 0) {	// If stopped and continue
@@ -513,9 +978,23 @@ function play_tune(what: number): void {
         return;
     }
     
-    if (what != 0 && selx[0] && selx[1]) {	// If full selection
+    // Priority to the current selection if there is one
+    if (selectionManager.active) {
+        // Get the min and max indices for selection
+        const minIdx = Math.min(selectionManager.startIdx, selectionManager.endIdx);
+        const maxIdx = Math.max(selectionManager.startIdx, selectionManager.endIdx);
+        
+        // Update selx array based on the selection manager
+        selx[0] = minIdx;
+        selx[1] = maxIdx;
+        
+        si = get_se(minIdx);
+        ei = get_ee(maxIdx);
+        what = 1; // Always use selection mode if there's an active selection
+    } else if (selx[0] && selx[1]) {
         si = get_se(selx[0]);
         ei = get_ee(selx[1]);
+        what = 1; // Use selection mode
     } else if (what != 0 && selx[0]) {	// If selection without end
         si = get_se(selx[0]);
         ei = null;
@@ -568,19 +1047,25 @@ function setsel(idx: number, v: number): void {
         return;
         
     if (old_v) {
-        // Remove highlighting from previously selected elements
-        const elts = document.getElementsByClassName('_' + old_v + '_');
-        let i = elts.length;
-        while (--i >= 0)
-            (elts[i] as HTMLElement).style.fillOpacity = '0';
+        // Only remove highlighting if we're not using the selection manager
+        if (!selectionManager.active) {
+            // Remove highlighting from previously selected elements
+            const elts = document.getElementsByClassName('_' + old_v + '_');
+            let i = elts.length;
+            while (--i >= 0)
+                (elts[i] as HTMLElement).style.fillOpacity = '0';
+        }
     }
     
     if (v) {
-        // Add highlighting to newly selected elements
-        const elts = document.getElementsByClassName('_' + v + '_');
-        let i = elts.length;
-        while (--i >= 0)
-            (elts[i] as HTMLElement).style.fillOpacity = '0.4';
+        // Only add highlighting if we're not using the selection manager
+        if (!selectionManager.active) {
+            // Add highlighting to newly selected elements
+            const elts = document.getElementsByClassName('_' + v + '_');
+            let i = elts.length;
+            while (--i >= 0)
+                (elts[i] as HTMLElement).style.fillOpacity = '0.4';
+        }
     }
 
     selx[idx] = v;
@@ -603,6 +1088,16 @@ function endplay(repv?: number): void {
 
     // Redisplay the selection
     selx[0] = selx[1] = 0;
-    setsel(0, selx_sav[0]);
-    setsel(1, selx_sav[1]);
+    
+    // If we had a selection manager active before playing, restore it
+    if (selx_sav[0] && selx_sav[1]) {
+        if (!selectionManager.active) {
+            selectionManager.start(selx_sav[0]);
+            selectionManager.end(selx_sav[1]);
+        }
+    } else {
+        // Otherwise, just restore the old selection highlights
+        setsel(0, selx_sav[0]);
+        setsel(1, selx_sav[1]);
+    }
 }

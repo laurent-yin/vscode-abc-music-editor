@@ -187,8 +187,6 @@ export function jumpToPosition(start: number, stop: number) {
 	const col = start - pos;
 	editor.selection = new vscode.Selection(line, col, line, col + (stop - start));
 	editor.revealRange(new vscode.Range(line, 0, line + 10, 0));
-
-	vscode.window.activeTextEditor = editor;
 }
 
 // this method is called when your extension is deactivated
