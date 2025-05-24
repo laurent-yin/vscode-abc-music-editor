@@ -36,13 +36,14 @@
 	<!-- Play button that triggers MIDI playback of the ABC music -->
 	<button id="play-button">Play</button>
 	<!-- Button to open the current ABC content in an external web editor -->
-	<button id="open-web">Open in Michael Eskin's Web Editor</button>
+	<button id="open-web">Open Web Editor</button>
 	<!-- 
 	 * The #sheet div is the container where all SVG music notation will be rendered
 	 * abc.tosvg() will generate SVG content that gets inserted here via abc_images
 	 * Each musical line/staff typically becomes a separate SVG element
 	 -->
-	<div id="sheet"></div>
+	<!--<div id="sheet"></div>-->
+	<div id="sheet" style="border:1px solid black;	width:600px; height:800px;padding:0px"></div>
 	<!-- 
 	 * preview.js - Compiled from preview.ts, contains all the logic for:
 	 * 1. Rendering ABC notation to SVG

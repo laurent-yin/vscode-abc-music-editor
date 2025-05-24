@@ -220,7 +220,7 @@ window.addEventListener('message', event => {
                     
                     // Store the music symbol for later use (e.g., playback)
                     syms[start] = s;
-                    
+
                     if (["note", "rest", "Zrest"].indexOf(type) == -1)
                         return;
             
