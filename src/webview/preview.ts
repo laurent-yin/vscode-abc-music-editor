@@ -328,14 +328,14 @@ function setupSelectionOverlay(): void {    // Add CSS to the document for selec
             /* Ensure selection highlights span full height */
             svg {
                 position: relative;
-            }            /* Visual indicator for selected notes */
-            .abcr.selected {
+            }            /* Uncomment for debugging selection issues: Visual indicator for selected notes */
+            /*.abcr.selected {
                 opacity: 1 !important;
                 stroke: #ff0000;
                 stroke-width: 1.5;
                 stroke-opacity: 1;
                 fill: rgba(255, 0, 0, 0.1) !important; /* Light red highlighting for selected notes */
-            }
+            }*/
             
             /* When selection is active, dim unselected notes */
             .selection-active .abcr:not(.selected) {
@@ -541,14 +541,39 @@ const selectionManager = {
             
             // Instead of creating a big rectangle spanning all notes, let's create a path that connects
             // all the note rectangles for a more precise selection
-            const firstNote = selectedNotesInStaff[0] as SVGRectElement;            
+            const firstNote = selectedNotesInStaff[0] as SVGRectElement;     
+
+            // Find the parent group that contains all the note rectangles
+            const noteParent = firstNote.parentElement;
+            if (!noteParent) return;
+
+            // create a function to extract recursively the scale factor from the factor of the scale attributes from all g ancestors
+            // This is needed to correctly position the selection rectangle in the root SVG coordinate system
+            var recursiveComputeXScale = (element: Element | null): number => {
+                if (!element || element.tagName !== 'g') return 1;
+
+                let xScale = 1;
+                const transform = element.getAttribute('transform');
+                if (transform) {
+                    const match = transform.match(/scale\(\s*([0-9.]+)\s*(,\s*([0-9.]+)\s*)?\)/);
+                    
+                    if (match) {
+                        xScale = parseFloat(match[1]);
+                    }
+                }
+                
+                const parent = element.parentElement;
+                return recursiveComputeXScale(parent) * xScale;
+            }
+
+            let scaleX = recursiveComputeXScale(noteParent);
             
             // Get the positions and dimensions of the first note
             let minX = parseFloat(firstNote.getAttribute('x') || '0');
             let maxX = minX + parseFloat(firstNote.getAttribute('width') || '0');
             // Get the positions and dimensions of all notes to determine the exact bounding box
-            const minY = -height;
-            const maxY = 0;
+            const minY = 0;
+            const maxY = height;
             
             selectedNotesInStaff.forEach((noteElement: SVGRectElement) => {
                 const x: number = parseFloat(noteElement.getAttribute('x') || '0');
@@ -557,25 +582,25 @@ const selectionManager = {
                 minX = Math.min(minX, x);
                 maxX = Math.max(maxX, x + width);
             });
+
+            // Adjust minX and maxX for the scale of the parent group
+            minX *= scaleX;
+            maxX *= scaleX;
             
             // Create a rectangle highlighting the selected area in this staff that matches 
             // the exact position of the notes
             const selectedArea = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
             selectedArea.setAttribute('class', 'selected-area');
             
-            // Use exact coordinates from the note rectangles (with a slight padding)
+            // Use exact coordinates from the note rectangles (with a slight Y padding)
             const padding = 2;
-            selectedArea.setAttribute('x', (minX - padding).toString());
+            selectedArea.setAttribute('x', (minX).toString());
             selectedArea.setAttribute('y', (minY - padding).toString());
-            selectedArea.setAttribute('width', ((maxX - minX) + padding * 2).toString());
+            selectedArea.setAttribute('width', ((maxX - minX)).toString());
             selectedArea.setAttribute('height', ((maxY - minY) + padding * 2).toString());
 
-            // Find the parent group that contains all the note rectangles
-            const noteParent = firstNote.parentElement;
-            if (!noteParent) return;
-
-            // Add the selection rectangle to the same parent as the notes
-            noteParent.insertBefore(selectedArea, noteParent.firstChild);
+            // Add the selection rectangle as the first child of the svg element
+            svg.insertBefore(selectedArea, svg.firstChild);
             
             this.selectedAreas.push(selectedArea);
         });
