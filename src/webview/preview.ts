@@ -156,6 +156,11 @@ let syms: any[] = [];   // Music symbol at source index
 const selx: [number, number] = [0, 0]; // (start, end) of the selection
 const selx_sav: number[] = []; // (saved while playing/printing)
 
+// Disable the default context menu on right-click
+document.addEventListener('contextmenu', (event) => {
+    event.preventDefault(); // Prevent the default context menu from appearing
+});
+
 /**
  * Dynamic script loader used by abc2svg to load required modules
  * Output: Injects <script> tags into document.head to load additional functionality
@@ -269,6 +274,7 @@ window.addEventListener('message', event => {
                 // Insert all the collected SVG content into the DOM
                 console.log('inserting SVG content into the DOM, length:', abc_images.length);
                 div.innerHTML = abc_images;
+                selectionManager.clear();
                 
                 // Set up selection overlay after rendering
                 setupSelectionOverlay();
@@ -307,15 +313,7 @@ window.addEventListener('message', event => {
 function setupSelectionOverlay(): void {    // Add CSS to the document for selection styling
     if (!document.getElementById('selection-styles')) {        const style = document.createElement('style');
         style.id = 'selection-styles';
-        style.textContent = `/*            .staff-dimming-overlay {
-                fill: #888888;
-                fill-opacity: 0;
-                pointer-events: none;
-                transition: fill-opacity 0.2s ease-in-out;
-            }
-              .selection-active .staff-dimming-overlay {
-                fill-opacity: 0;
-            }*/
+        style.textContent = `
               .selected-area {
                 fill: transparent;
                 pointer-events: none;
@@ -333,7 +331,9 @@ function setupSelectionOverlay(): void {    // Add CSS to the document for selec
             /* Ensure selection highlights span full height */
             svg {
                 position: relative;
-            }            /* Uncomment for debugging selection issues: Visual indicator for selected notes */
+            }
+
+            /* Uncomment for debugging selection issues: Visual indicator for selected notes */
             /*.abcr.selected {
                 opacity: 1 !important;
                 stroke: #ff0000;
@@ -341,38 +341,9 @@ function setupSelectionOverlay(): void {    // Add CSS to the document for selec
                 stroke-opacity: 1;
                 fill: rgba(255, 0, 0, 0.1) !important; /* Light red highlighting for selected notes */
             }*/
-            
-            /* When selection is active, dim unselected notes */
-            .selection-active .abcr:not(.selected) {
-                opacity: 0.3;
-            }
         `;
         document.head.appendChild(style);
     }
-    
-    // Get all music SVG elements
-    const svgElements = document.querySelectorAll('#sheet svg');
-    
-    // For each SVG (typically one per staff line)
-    /*svgElements.forEach((svg, index) => {
-        // Create the dimming overlay for the entire staff if it doesn't exist
-        if (!svg.querySelector('.staff-dimming-overlay')) {
-            const viewBox = svg.getAttribute('viewBox');
-            if (!viewBox) return;
-            
-            const [, , width, height] = viewBox.split(' ').map(parseFloat);
-            
-            const dimmingOverlay = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            dimmingOverlay.setAttribute('class', 'staff-dimming-overlay staff-' + index);
-            dimmingOverlay.setAttribute('x', '0');
-            dimmingOverlay.setAttribute('y', '0');
-            dimmingOverlay.setAttribute('width', width.toString());
-            dimmingOverlay.setAttribute('height', height.toString());
-            
-            // Add to the SVG at the beginning so it's behind all content
-            svg.insertBefore(dimmingOverlay, svg.firstChild);
-        }
-    });*/
 }
 
 /**
@@ -476,146 +447,99 @@ const selectionManager = {
     
     /**
      * Updates the visual representation of the selection
-     * Creates continuous blocks spanning the entire height of each affected staff
-     */    update(): void {
+     * Creates vertical lines at the start and end of the selection
+     */ update(): void {
         if (!this.active) return;
-        
-        // Get the min and max indices for selection
-        const minIdx = Math.min(this.startIdx, this.endIdx);
-        const maxIdx = Math.max(this.startIdx, this.endIdx);
-        
-        // Clear any previous selected areas
+
+        // Clear previous selection visuals
         this.selectedAreas.forEach(element => {
             if (element && element.parentNode) {
                 element.parentNode.removeChild(element);
             }
         });
-        this.selectedAreas = [];            // Remove 'selected' class from all notes first
-            document.querySelectorAll('.abcr').forEach(element => {
-                element.classList.remove('selected');
-            });
-        
-        // Add class to body to activate dimming overlays
-        document.body.classList.add('selection-active');
-        
-        // Find all staff SVGs that contain selected notes
-        const staffsWithSelection = new Map(); // Maps staff SVG to [minX, maxX] coordinates
-        
-        // Find left and right boundaries in each staff
-        for (let i = minIdx; i <= maxIdx; i++) {
-            const elements = document.getElementsByClassName('_' + i + '_');
-            for (let j = 0; j < elements.length; j++) {
-                const element = elements[j] as SVGRectElement;
-                
-                // Add 'selected' class to highlight this note in red
-                element.classList.add('selected');
-                
-                // Find the parent SVG
-                let parentSvg = element.parentElement;
-                while (parentSvg && parentSvg.tagName !== 'svg') {
-                    parentSvg = parentSvg.parentElement;
-                }
-                
-                if (parentSvg) {
-                    // Get x coordinate and width of this note
-                    const x = parseFloat(element.getAttribute('x') || '0');
-                    const width = parseFloat(element.getAttribute('width') || '0');
-                    
-                    // Store or update the min/max X coordinates for this staff
-                    if (!staffsWithSelection.has(parentSvg)) {
-                        staffsWithSelection.set(parentSvg, [x, x + width]);
-                    } else {
-                        const [minX, maxX] = staffsWithSelection.get(parentSvg);
-                        staffsWithSelection.set(parentSvg, [
-                            Math.min(minX, x),
-                            Math.max(maxX, x + width)
-                        ]);
-                    }
-                }
-            }
-        }          // Create selection blocks for each staff with selected notes
-        staffsWithSelection.forEach((xRange, svg) => {
-            // Get the viewBox to determine staff dimensions
-            const viewBox = svg.getAttribute('viewBox');
-            if (!viewBox) return;
-            
-            const [, , , height] = viewBox.split(' ').map(parseFloat);
-              // Get all selected notes in this staff to calculate the exact area to highlight
-            const selectedNotesInStaff = svg.querySelectorAll('.abcr.selected');
-            if (selectedNotesInStaff.length === 0) return;
-            
-            // Instead of creating a big rectangle spanning all notes, let's create a path that connects
-            // all the note rectangles for a more precise selection
-            const firstNote = selectedNotesInStaff[0] as SVGRectElement;     
+        this.selectedAreas = [];
 
-            // Find the parent group that contains all the note rectangles
-            const noteParent = firstNote.parentElement;
-            if (!noteParent) return;
+        const minIdx = Math.min(this.startIdx, this.endIdx);
+        const maxIdx = Math.max(this.startIdx, this.endIdx);
 
-            // create a function to extract recursively the scale factor from the factor of the scale attributes from all g ancestors
-            // This is needed to correctly position the selection rectangle in the root SVG coordinate system
-            var recursiveComputeXScale = (element: Element | null): number => {
-                if (!element || element.tagName !== 'g') return 1;
-
-                let xScale = 1;
-                const transform = element.getAttribute('transform');
-                if (transform) {
-                    const match = transform.match(/scale\(\s*([0-9.]+)\s*(,\s*([0-9.]+)\s*)?\)/);
-                    
-                    if (match) {
-                        xScale = parseFloat(match[1]);
-                    }
-                }
-                
-                const parent = element.parentElement;
-                return recursiveComputeXScale(parent) * xScale;
-            }
-
-            let scaleX = recursiveComputeXScale(noteParent);
-            
-            // Get the positions and dimensions of the first note
-            let minX = parseFloat(firstNote.getAttribute('x') || '0');
-            let maxX = minX + parseFloat(firstNote.getAttribute('width') || '0');
-            // Get the positions and dimensions of all notes to determine the exact bounding box
-            const minY = 0;
-            const maxY = height;
-            
-            selectedNotesInStaff.forEach((noteElement: SVGRectElement) => {
-                const x: number = parseFloat(noteElement.getAttribute('x') || '0');
-                const width: number = parseFloat(noteElement.getAttribute('width') || '0');
-
-                minX = Math.min(minX, x);
-                maxX = Math.max(maxX, x + width);
-            });
-
-            // Adjust minX and maxX for the scale of the parent group
-            minX *= scaleX;
-            maxX *= scaleX;
-            
-            // Create a rectangle highlighting the selected area in this staff that matches 
-            // the exact position of the notes
-            const selectedArea = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            selectedArea.setAttribute('class', 'selected-area');
-            
-            // Use exact coordinates from the note rectangles (with a slight Y padding)
-            const padding = 2;
-            selectedArea.setAttribute('x', (minX).toString());
-            selectedArea.setAttribute('y', (minY - padding).toString());
-            selectedArea.setAttribute('width', ((maxX - minX)).toString());
-            selectedArea.setAttribute('height', ((maxY - minY) + padding * 2).toString());
-
-            // Add the selection rectangle as the first child of the svg element
-            svg.insertBefore(selectedArea, svg.firstChild);
-            
-            this.selectedAreas.push(selectedArea);
+        // Remove 'selected' class from all notes first
+        document.querySelectorAll('.abcr').forEach(element => {
+            element.classList.remove('selected');
         });
-          // Set highlight on the selected notes for better visibility
+
+        // Add 'selected' class to selected notes
         for (let i = minIdx; i <= maxIdx; i++) {
             const elements = document.getElementsByClassName('_' + i + '_');
             for (let j = 0; j < elements.length; j++) {
                 (elements[j] as HTMLElement).classList.add('selected');
             }
         }
+
+        // Find first and last selected notes
+        const firstNoteElement = document.querySelector(`._${minIdx}_`) as SVGRectElement;
+        const lastNoteElement = document.querySelector(`._${maxIdx}_`) as SVGRectElement;
+
+        if (!firstNoteElement || !lastNoteElement) return;
+
+        // Helper function to find parent SVG
+        const findParentSvg = (element: Element): SVGSVGElement | null => {
+            let parent = element.parentElement;
+            while (parent && parent.tagName !== 'svg') {
+                parent = parent.parentElement;
+            }
+            return parent as SVGSVGElement | null;
+        };
+
+        const firstSvg = findParentSvg(firstNoteElement);
+        const lastSvg = findParentSvg(lastNoteElement);
+
+        if (!firstSvg || !lastSvg) return;
+
+        // Helper function to compute cumulative scale
+        const recursiveComputeXScale = (element: Element | null): number => {
+            if (!element || element.tagName !== 'g') return 1;
+            let xScale = 1;
+            const transform = element.getAttribute('transform');
+            if (transform) {
+                const match = transform.match(/scale\(\s*([0-9.]+)\s*(,\s*([0-9.]+)\s*)?\)/);
+                if (match) {
+                    xScale = parseFloat(match[1]);
+                }
+            }
+            return recursiveComputeXScale(element.parentElement) * xScale;
+        };
+
+        // Compute positions for vertical lines
+        const computeXPosition = (noteElement: SVGRectElement): number => {
+            const x = parseFloat(noteElement.getAttribute('x') || '0');
+            const scaleX = recursiveComputeXScale(noteElement.parentElement);
+            return x * scaleX;
+        };
+
+        const firstX = computeXPosition(firstNoteElement);
+        const lastX = computeXPosition(lastNoteElement) + parseFloat(lastNoteElement.getAttribute('width') || '0') * recursiveComputeXScale(lastNoteElement.parentElement);
+
+        // Create vertical line function
+        const createVerticalLine = (svg: SVGSVGElement, xPos: number): SVGLineElement => {
+            const viewBox = svg.getAttribute('viewBox');
+            if (!viewBox) throw new Error('SVG missing viewBox');
+            const [, , , height] = viewBox.split(' ').map(parseFloat);
+
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('class', 'selected-area');
+            line.setAttribute('x1', xPos.toString());
+            line.setAttribute('y1', '0');
+            line.setAttribute('x2', xPos.toString());
+            line.setAttribute('y2', height.toString());
+            svg.insertBefore(line, svg.firstChild);
+            return line;
+        };
+
+        // Add vertical lines
+        const firstLine = createVerticalLine(firstSvg, firstX);
+        const lastLine = createVerticalLine(lastSvg, lastX);
+
+        this.selectedAreas.push(firstLine, lastLine);
     }
 };
 
@@ -624,33 +548,6 @@ const mouseState = {
     isSelecting: false,
     lastIdx: 0
 };
-
-/**
- * Click event handler for the document
- * Detects clicks on musical elements and sends selection info back to VS Code
- */
-document.addEventListener('click', event => {
-    const target = event.target as Element;
-    
-    // Handle SVG and HTML elements differently for className
-    let cls = '';
-    if (target instanceof SVGElement) {
-        // SVG elements have className.baseVal
-        cls = (target as SVGElementWithClassName)?.className?.baseVal || '';
-    } else {
-        // Regular HTML elements have className as string
-        cls = String(target?.className || '');
-    }
-    
-    // If a selection marker was clicked, extract the start/stop positions
-    // and send them back to VS Code to highlight the corresponding ABC text
-    if (cls.startsWith('selMarker')) {
-        const match = cls.match(/_(\d+)-(\d+)_/);
-        if (match) {
-            vscode.postMessage({ command: 'selection', start: +match[1], stop: +match[2] });
-        }
-    }
-});
 
 // Mouse down handler to start selection
 document.addEventListener('mousedown', event => {
@@ -767,41 +664,7 @@ document.addEventListener('mouseup', () => {
 });
 
 // Keyboard shortcuts for selection
-document.addEventListener('keydown', (event) => {
-    // Ctrl/Cmd+A for "Select All"
-    if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
-        event.preventDefault(); // Prevent default browser select all
-        
-        // Find the first and last note indices
-        const noteElements = document.querySelectorAll('[class*="abcr"]');
-        if (noteElements.length === 0) return;
-        
-        let firstIdx = Infinity;
-        let lastIdx = 0;
-        
-        noteElements.forEach(element => {
-            let cls = '';
-            if (element instanceof SVGElement) {
-                cls = (element as SVGElementWithClassName)?.className?.baseVal || '';
-            } else {
-                cls = String(element?.className || '');
-            }
-            
-            const match = cls.match(/_(\d+)_/);
-            if (match) {
-                const idx = +match[1];
-                firstIdx = Math.min(firstIdx, idx);
-                lastIdx = Math.max(lastIdx, idx);
-            }
-        });
-        
-        // Select all notes from first to last
-        if (firstIdx !== Infinity && lastIdx > 0) {
-            selectionManager.start(firstIdx);
-            selectionManager.end(lastIdx);
-        }
-    }
-    
+document.addEventListener('keydown', (event) => {    
     // Escape key clears selection
     if (event.key === 'Escape' && selectionManager.active) {
         selectionManager.clear();
@@ -1075,28 +938,6 @@ function setsel(idx: number, v: number): void {
 
     if (v == old_v)
         return;
-        
-    if (old_v) {
-        // Only remove highlighting if we're not using the selection manager
-        if (!selectionManager.active) {
-            // Remove highlighting from previously selected elements
-            const elts = document.getElementsByClassName('_' + old_v + '_');
-            let i = elts.length;
-            while (--i >= 0)
-                (elts[i] as HTMLElement).style.fillOpacity = '0';
-        }
-    }
-    
-    if (v) {
-        // Only add highlighting if we're not using the selection manager
-        if (!selectionManager.active) {
-            // Add highlighting to newly selected elements
-            const elts = document.getElementsByClassName('_' + v + '_');
-            let i = elts.length;
-            while (--i >= 0)
-                (elts[i] as HTMLElement).style.fillOpacity = '0.4';
-        }
-    }
 
     selx[idx] = v;
 }

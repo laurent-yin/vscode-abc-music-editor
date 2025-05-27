@@ -5,11 +5,6 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>ABC Preview</title>
 	<style>
-	  /* 
-	   * selMarker - Used for highlighting selected musical elements in the rendered score
-	   * The fill-opacity: 0 makes it initially invisible, but it becomes visible when selected
-	   */
-	  .selMarker { fill: #d00000; fill-opacity: 0; z-index: 15; }
 	  #play-button { margin: 10px; padding: 6px 12px; font-size: 14px; }
 
 	  /* Block display for SVG prevents gaps between musical lines */
@@ -48,8 +43,8 @@
 	 * abc.tosvg() will generate SVG content that gets inserted here via abc_images
 	 * Each musical line/staff typically becomes a separate SVG element
 	 -->
-	<!--<div id="sheet"></div>-->
-	<div id="sheet" style="border:1px solid black;	width:600px; height:800px;padding:0px"></div>
+	<div id="sheet"></div>
+	<!--<div id="sheet" style="border:1px solid black;	width:600px; height:800px;padding:0px"></div>-->
 	<!-- 
 	 * preview.js - Compiled from preview.ts, contains all the logic for:
 	 * 1. Rendering ABC notation to SVG

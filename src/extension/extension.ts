@@ -116,7 +116,7 @@ function showMusicPreview(context: vscode.ExtensionContext) {
 	panel.webview.onDidReceiveMessage(message => {
 		switch (message.command) {
 			case 'selection':
-				jumpToPosition(message.start, message.stop);
+				jumpToPosition(message.start, message.stop); // known issue: doesn't work if fit2box module is activated, as it rewrites the tune
 				return;
 			case 'error':
 				showDiagnostics(message.message, message.line, message.col);
