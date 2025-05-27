@@ -11,8 +11,14 @@
 	   */
 	  .selMarker { fill: #d00000; fill-opacity: 0; z-index: 15; }
 	  #play-button { margin: 10px; padding: 6px 12px; font-size: 14px; }
+
 	  /* Block display for SVG prevents gaps between musical lines */
 	  svg { display: block; } /* important to remove white bands between each svg block */
+	  svg text { user-select: none; } /* Prevents text selection in SVG */
+	  /* Ensure SVGs with a viewBox height of 0 have an actual height of 0 */
+      svg[viewBox$=" 0"] {
+        height: 0;
+      }
 	</style>
     <script>
       /* 
@@ -42,8 +48,8 @@
 	 * abc.tosvg() will generate SVG content that gets inserted here via abc_images
 	 * Each musical line/staff typically becomes a separate SVG element
 	 -->
-	<div id="sheet"></div>
-	<!--<div id="sheet" style="border:1px solid black;	width:600px; height:800px;padding:0px"></div>-->
+	<!--<div id="sheet"></div>-->
+	<div id="sheet" style="border:1px solid black;	width:600px; height:800px;padding:0px"></div>
 	<!-- 
 	 * preview.js - Compiled from preview.ts, contains all the logic for:
 	 * 1. Rendering ABC notation to SVG

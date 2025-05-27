@@ -23,6 +23,8 @@ interface ABC2SVG {
      * @param onerror Callback function on error
      */
     loadjs: (fn: string, relay?: (event?: any) => void, onerror?: (event?: any) => void) => void;
+
+    abc_end: () => void; // Function to handle page formatting
     
     /** Constructor for the main ABC parsing/rendering instance */
     Abc: new (user: User) => AbcInstance;
@@ -144,6 +146,7 @@ declare const LZString: any;
 const vscode = acquireVsCodeApi();
 let abc: AbcInstance;
 let currentAbcContent = ''; // Store the current ABC text to detect changes
+let abc_images = ''; // Collects all SVG output generated during rendering. It will contain multiple SVG elements, typically one per staff/line of music
 let user: User; // IMPORTANT: user needs to be in the global scope for some modules to work properly (e.g. page module)
 
 // Variables needed for playback
@@ -181,6 +184,8 @@ abc2svg.loadjs("snd-1.js", function() {
     });
 });
 
+abc2svg.abc_end = function() {}	// accept page formatting
+
 // Process messages received from the extension
 window.addEventListener('message', event => {
     const msg = event.data;
@@ -190,17 +195,16 @@ window.addEventListener('message', event => {
         currentAbcContent = abcContent;
         const div = document.getElementById('sheet') as HTMLDivElement;
         div.innerHTML = '';
+        abc_images = ''; // Reset accumulated SVG content
 
-        if (abc2svg) {
-            // This variable collects all SVG output generated during the rendering process
-            // It will contain multiple SVG elements, typically one per staff/line of music
-            let abc_images = '';
-            
+        if (abc2svg) {            
             // Configure the user object with callbacks that abc2svg will use during rendering
             user = {
                 // img_out is called by abc2svg for each SVG snippet it generates
                 // These snippets are accumulated in abc_images and later inserted into the DOM
-                img_out: (s: string) => { abc_images += s; },
+                img_out: (s: string) => {
+                    abc_images += s; 
+                },
                 
                 // Set SVG image size to be responsive
                 imagesize: 'width="100%"',
@@ -263,6 +267,7 @@ window.addEventListener('message', event => {
                 abc.tosvg('abc', abcContent);
                 
                 // Insert all the collected SVG content into the DOM
+                console.log('inserting SVG content into the DOM, length:', abc_images.length);
                 div.innerHTML = abc_images;
                 
                 // Set up selection overlay after rendering
