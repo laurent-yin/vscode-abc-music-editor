@@ -817,13 +817,13 @@ function play_tune(what: number): void {
         return sym;
     }
 
-    function get_ee(si: number): any {			// Get the ending symbol
-        let sym = syms[si];
+	function get_ee(si: number) {			// get the ending symbol
+	    var	sym = syms[si].ts_next
 
-        while (sym.ts_next && !sym.ts_next.seqst)
-            sym = sym.ts_next;
-        return sym;
-    }
+		while (sym && !sym.seqst)
+			sym = sym.ts_next
+		return sym
+	} // get_ee()
 
     /**
      * Start playback with the given start and end symbols
