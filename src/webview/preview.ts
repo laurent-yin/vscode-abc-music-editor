@@ -247,6 +247,33 @@ window.addEventListener('message', event => {
                 // Enable page formatting
                 page_format: true
             };
+
+            function addBordersIfNeeded(abcContent: string, div: HTMLDivElement): void {
+                // Check if the ABC content has both %%pageheight and %%pagewidth defined and capture their values
+                const pageHeightMatch = abcContent.match(/\n%%pageheight\s+(\d+)/);
+                const pageWidthMatch = abcContent.match(/\n%%pagewidth\s+(\d+)/);
+                if (pageHeightMatch && pageWidthMatch) {
+                    const pageHeight = parseInt(pageHeightMatch[1], 10);
+                    const pageWidth = parseInt(pageWidthMatch[1], 10);
+
+                    // set the style of the div to match the page dimensions
+                    div.style.width = `${pageWidth}px`;
+                    div.style.height = `${pageHeight}px`;
+                    div.style.border = '1px solid black'; // Add a border to the div
+                    div.style.padding = '0px';
+                }
+                else {
+                    // reset the style if no page dimensions are found
+                    div.style.width = '';
+                    div.style.height = '';
+                    div.style.border = '';
+                    div.style.padding = '';
+                }
+
+                // Add fit2box class if %%fit2box is present
+                div.classList.toggle('fit2box', /\n%%fit2box/.test(abcContent));
+                // div.style.backgroundColor = /\n%%fit2box/.test(abcContent) ? '#f0f0f0' : ''; // Use a light gray background if fit2box is enabled
+            }
             
             /**
              * Renders ABC notation to SVG
@@ -262,10 +289,7 @@ window.addEventListener('message', event => {
             function renderAbc(abcContent: string, div: HTMLDivElement): void {
                 console.log('rendering ABC content');
 
-                // TODO: remove this after finishing debugging fit2box
-                // let cfmt = abc.cfmt();
-                // cfmt.pagewidth = 600;
-                // cfmt.pageheight = 800;
+                addBordersIfNeeded(abcContent, div);
 
                 // This is the main call that starts the rendering process
                 // It will call user.img_out() multiple times with SVG content

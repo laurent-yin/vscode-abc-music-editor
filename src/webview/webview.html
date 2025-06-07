@@ -10,6 +10,8 @@
 	  /* Block display for SVG prevents gaps between musical lines */
 	  svg { display: block; } /* important to remove white bands between each svg block */
 	  svg text { user-select: none; } /* Prevents text selection in SVG */
+	  .fit2box svg { background: white; }
+      #sheet.fit2box { background-color: lightgray;} 
 	</style>
     <script>
       /* 
@@ -40,7 +42,7 @@
 	 * Each musical line/staff typically becomes a separate SVG element
 	 -->
 	<div id="sheet"></div>
-	<!--<div id="sheet" style="border:1px solid black;	width:600px; height:800px;padding:0px"></div>-->
+	<!--<div id="sheet" style="border:1px solid black;	width:800px; height:1200px;padding:0px"></div>-->
 	<!-- 
 	 * preview.js - Compiled from preview.ts, contains all the logic for:
 	 * 1. Rendering ABC notation to SVG
