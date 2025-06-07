@@ -261,6 +261,7 @@ window.addEventListener('message', event => {
                     div.style.height = `${pageHeight}px`;
                     div.style.border = '1px solid black'; // Add a border to the div
                     div.style.padding = '0px';
+                    div.classList.add('showbox');
                 }
                 else {
                     // reset the style if no page dimensions are found
@@ -268,11 +269,8 @@ window.addEventListener('message', event => {
                     div.style.height = '';
                     div.style.border = '';
                     div.style.padding = '';
+                    div.classList.remove('showbox');
                 }
-
-                // Add fit2box class if %%fit2box is present
-                div.classList.toggle('fit2box', /\n%%fit2box/.test(abcContent));
-                // div.style.backgroundColor = /\n%%fit2box/.test(abcContent) ? '#f0f0f0' : ''; // Use a light gray background if fit2box is enabled
             }
             
             /**
