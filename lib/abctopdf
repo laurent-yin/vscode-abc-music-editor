@@ -203,7 +203,7 @@ if command -v rsvg-convert >/dev/null 2>&1; then
 			else
 				page_out += p
 					.replace(/<\/?svg(.|\n)*?>/g, '')
-			page_h += Number(p.match(/height="(\d+)px"/)[1])
+			page_h += Number(p.match(/height="([\d.]+)px"/)[1])
 			break
 		case "</di":			// end of page
 			w = cfmt.pagewidth
