@@ -99,7 +99,7 @@ function postAbcToWebview(document: vscode.TextDocument) {
     let dir = path.dirname(document.fileName);
     const workspaceFolders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) || [];
     while (true) {
-        const directivesPath = path.join(dir, 'abc.directives');
+        const directivesPath = path.join(dir, '.abcdirectives');
         if (fs.existsSync(directivesPath)) {
             abcDirFiles.unshift(directivesPath); // parent first
         }
