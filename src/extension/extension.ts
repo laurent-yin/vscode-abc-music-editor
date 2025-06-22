@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { parseFlatDirectives, mergeFlatDirectives, stringifyParsedLines, ParsedLine } from './directivesMerger';
 
 let diagnosticCollection: vscode.DiagnosticCollection;
 let panel: vscode.WebviewPanel | undefined;
@@ -24,6 +25,28 @@ export function activate(context: vscode.ExtensionContext) {
 		/* Show ABC errors in the editor as squiggly lines */
 		diagnosticCollection = vscode.languages.createDiagnosticCollection('abc');
 		context.subscriptions.push(diagnosticCollection);
+
+		vscode.languages.registerCompletionItemProvider('abc', {
+			provideCompletionItems(document, position) {
+				const line = document.lineAt(position).text;
+				const char = position.character;
+
+				if (char > 0 && line[char - 1] === ' ') {
+				const insertPos = position;
+				const range = new vscode.Range(insertPos, insertPos); // zero-length range for insertion
+
+				const item = new vscode.CompletionItem('|', vscode.CompletionItemKind.Keyword);
+				item.detail = 'Insert bar line';
+				item.insertText = '| ';
+				item.range = range;
+				item.sortText = '\0';
+
+				return [item];
+				}
+				return [];
+			}
+		}, ' ');
+		
 	} catch (error) {
 		console.error(error);		
 	}
@@ -70,14 +93,50 @@ function postAbcToWebview(document: vscode.TextDocument) {
 	if (!panel) return;
   
 	panel.title = `ABC Preview: ${path.basename(document.fileName)}`;
-	const content = normalizeLineEndings(document.getText());
-  
-	diagnosticCollection.set(document.uri, []);
-  
-	panel.webview.postMessage({
-	  command: 'render',
-	  content
-	});
+	
+    // 1. Find all abc.directives files from current folder up to workspace root
+    const abcDirFiles: string[] = [];
+    let dir = path.dirname(document.fileName);
+    const workspaceFolders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) || [];
+    while (true) {
+        const directivesPath = path.join(dir, 'abc.directives');
+        if (fs.existsSync(directivesPath)) {
+            abcDirFiles.unshift(directivesPath); // parent first
+        }
+        if (workspaceFolders.some(root => dir === root) || dir === path.dirname(dir)) break;
+        dir = path.dirname(dir);
+    }
+
+    // 2. Parse and merge all found directives
+    let mergedDirectives: ParsedLine[] = [];
+    for (const file of abcDirFiles) {
+        const content = fs.readFileSync(file, 'utf8');
+        const parsed = parseFlatDirectives(content);
+        mergedDirectives = mergeFlatDirectives(mergedDirectives, parsed);
+    }
+
+    // 3. Extract directives from the .abc file before the first X: line
+    const abcText = normalizeLineEndings(document.getText());
+    const lines = abcText.split('\n');
+    const abcDirectives: ParsedLine[] = [];
+    for (const line of lines) {
+        if (line.trim().startsWith('X:')) break;
+        const parsed = parseFlatDirectives(line);
+        abcDirectives.push(...parsed);
+    }
+    mergedDirectives = mergeFlatDirectives(mergedDirectives, abcDirectives);
+
+    // 4. Build the merged content: merged directives + rest of ABC file (from X: onward)
+    const firstX = lines.findIndex(l => l.trim().startsWith('X:'));
+    const abcBody = firstX >= 0 ? lines.slice(firstX).join('\n') : abcText;
+    const mergedContent = `${stringifyParsedLines(mergedDirectives)}\n\n${abcBody}`;
+
+    diagnosticCollection.set(document.uri, []);
+
+    panel.webview.postMessage({
+        command: 'render',
+        content: mergedContent
+    });
   }
 
 function showMusicPreview(context: vscode.ExtensionContext) {
