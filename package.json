@@ -56,6 +56,15 @@
 				"extensions": [
 					".abc"
 				]
+			},
+			{
+				"id": "abcconfig",
+				"aliases": [
+					"ABCCONFIG"
+				],
+				"extensions": [
+					".abcconfig"
+				]
 			}
 		],
 		"grammars": [
@@ -63,6 +72,11 @@
 				"language": "abc",
 				"scopeName": "source.abc",
 				"path": "./language/abc.tmGrammar.json"
+			},			
+			{
+				"language": "abcconfig",
+				"scopeName": "source.abcconfig",
+				"path": "./language/abcconfig.tmGrammar.json"
 			}
 		],
 		"snippets": [

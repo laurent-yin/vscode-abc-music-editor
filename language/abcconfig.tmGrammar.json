@@ -1,0 +1,25 @@
+{
+    "scopeName": "source.abcconfig",
+    "patterns": [
+        { "include": "#directive" },
+        { "include": "#comments" }
+    ],
+    "repository": {
+        "directive": {
+            "patterns": [                
+                {
+                    "match": "^%%.*",
+                    "name": "storage"
+                }
+            ]
+        },
+        "comments": {
+            "patterns": [                
+                {
+                    "match": "^%.*",
+                    "name": "comment"
+                }
+            ]
+        }
+    }
+}
