@@ -94,12 +94,12 @@ function postAbcToWebview(document: vscode.TextDocument) {
   
 	panel.title = `ABC Preview: ${path.basename(document.fileName)}`;
 	
-    // 1. Find all abc.directives files from current folder up to workspace root
+    // 1. Find all .abcconfig files from current folder up to workspace root
     const abcDirFiles: string[] = [];
     let dir = path.dirname(document.fileName);
     const workspaceFolders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) || [];
     while (true) {
-        const directivesPath = path.join(dir, '.abcdirectives');
+        const directivesPath = path.join(dir, '.abcconfig');
         if (fs.existsSync(directivesPath)) {
             abcDirFiles.unshift(directivesPath); // parent first
         }
