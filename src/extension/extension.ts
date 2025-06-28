@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { stringifyParsedLines, getEffectiveAbcConfig } from './directivesMerger';
+import { getEffectiveAbcConfig } from 'abctools';
 
 let diagnosticCollection: vscode.DiagnosticCollection;
 let panel: vscode.WebviewPanel | undefined;
@@ -98,7 +98,7 @@ function postAbcToWebview(document: vscode.TextDocument) {
     // find the root directory for the current document
     let rootDir = workspaceFolders.find(root => document.fileName.startsWith(root)) || path.dirname(document.fileName);
 
-    // Merge directives from .abcconfig files
+    // take into account directives from .abcconfig files
     const { mergedDirectives, body } = getEffectiveAbcConfig(rootDir, document.fileName);
 
     const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';

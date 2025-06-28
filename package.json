@@ -72,7 +72,7 @@
 				"language": "abc",
 				"scopeName": "source.abc",
 				"path": "./language/abc.tmGrammar.json"
-			},			
+			},
 			{
 				"language": "abcconfig",
 				"scopeName": "source.abcconfig",
@@ -112,6 +112,7 @@
 		"vscode-test": "^1.6.1"
 	},
 	"dependencies": {
+		"abctools": "^0.1.4",
 		"lz-string": "^1.5.0"
 	}
 }
