@@ -112,7 +112,7 @@
 		"vscode-test": "^1.6.1"
 	},
 	"dependencies": {
-		"abctools": "^0.1.7",
+		"abctools": "^0.1.8",
 		"lz-string": "^1.5.0"
 	}
 }
