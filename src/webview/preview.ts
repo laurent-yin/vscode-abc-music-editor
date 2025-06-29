@@ -687,6 +687,15 @@ document.addEventListener('mouseup', () => {
 
 // Keyboard shortcuts for selection
 document.addEventListener('keydown', (event) => {    
+    // Space key triggers play if sheet is focused
+    if (event.key === ' ' || event.code === 'Space') {
+        const playBtn = document.getElementById('play-button');
+        if (playBtn) {
+            playBtn.click();
+        } else if (play.abcplay) {
+            play_tune(selectionManager.active ? 1 : 0);
+        }
+    }
     // Escape key clears selection
     if (event.key === 'Escape' && selectionManager.active) {
         selectionManager.clear();
