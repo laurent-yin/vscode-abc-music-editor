@@ -99,7 +99,7 @@ function postAbcToWebview(document: vscode.TextDocument) {
     let rootDir = workspaceFolders.find(root => document.fileName.startsWith(root)) || path.dirname(document.fileName);
 
     // take into account directives from .abcconfig files
-    const { mergedDirectives, body } = getEffectiveAbcConfig(rootDir, document.fileName);
+    const { mergedDirectives, body } = getEffectiveAbcConfig(rootDir, document.fileName, document.getText());
 
     const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
     const mergedContent = `${mergedDirectives}${eol}${eol}${body}`;
