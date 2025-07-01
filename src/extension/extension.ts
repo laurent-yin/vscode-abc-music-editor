@@ -125,7 +125,6 @@ function showMusicPreview(context: vscode.ExtensionContext) {
 		retainContextWhenHidden: true,
 		localResourceRoots: [
 			vscode.Uri.file(path.join(context.extensionPath, 'lib')),
-			vscode.Uri.file(path.join(context.extensionPath, 'src', 'webview')),
 			vscode.Uri.file(path.join(context.extensionPath, 'out', 'lib')),
 			vscode.Uri.file(path.join(context.extensionPath, 'out', 'webview'))
 		]
@@ -189,7 +188,7 @@ function showDiagnostics(message: string, line: number, col: number) {
 }
 
 function getWebviewHtml(baseUri: vscode.Uri): string {
-	const htmlPath = vscode.Uri.joinPath(baseUri, 'src', 'webview', 'webview.html');
+	const htmlPath = vscode.Uri.joinPath(baseUri, 'out', 'webview', 'webview.html');
 	let rawHtml = fs.readFileSync(htmlPath.fsPath, 'utf8');
 	let html = rawHtml.replace(/__BASE_URI__/g, baseUri.toString());
 	return html;
