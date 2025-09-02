@@ -184,6 +184,10 @@ abc2svg.loadjs = function(fn: string, relay?: (event?: any) => void, onerror?: (
 // Load snd-1.js for midi playback
 abc2svg.loadjs("snd-1.js", function() {
     console.log("snd-1.js loaded successfully");
+    play.abcplay = AbcPlay({
+        onend: endplay,
+        onnote: (note: any) => console.log("Playing note:", note),
+    });
     isMidiReady = true;
 });
 
@@ -733,10 +737,6 @@ document.getElementById('play-pause-btn')?.addEventListener('click', (event) => 
     const iconPlay = document.getElementById('icon-play')!;
     const iconPause = document.getElementById('icon-pause')!;
 
-    let firstTune = abc.tunes[0];
-    let voices = firstTune[1];
-    let chordVoice = voices.find((v:any) => v.id === "_chord");
-
     if (play?.playing) {
         play_tune(3); // Continue/stop playback
 
@@ -747,11 +747,6 @@ document.getElementById('play-pause-btn')?.addEventListener('click', (event) => 
     }
     
     if (isMidiReady) {
-        play.abcplay = AbcPlay({
-            onend: endplay,
-            onnote: (note: any) => console.log("Playing note:", note),
-        });
-
         iconPlay.style.display = 'none';
         iconPause.style.display = '';
         playPauseBtn.setAttribute('aria-label', 'Pause');
@@ -908,6 +903,17 @@ function play_tune(what: number): void {
         play.si = play.ei = null;
         play.stop = 0;
         play.loop = false;
+    }    
+
+    // play data has been generated
+    let firstTune = abc.tunes[0];
+    let voices = firstTune[1];
+    let chordVoice = voices.find((v:any) => v.id === "_chord");
+
+    let chordSim = chordVoice?.sym;
+    while (chordSim) {
+        // Do something with chordSim
+        chordSim = chordSim.ts_next;
     }
 
     // If loop again
