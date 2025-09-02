@@ -71,7 +71,7 @@ interface AbcInstance {
     sh: (h: number) => number;
     
     /** Gets the current formatting parameters */
-    cfmt: () => any;
+    cfmt: any;
     
     /** Array of tunes in the ABC content */
     tunes: Array<any>;
@@ -148,6 +148,7 @@ let abc: AbcInstance;
 let currentAbcContent = ''; // Store the current ABC text to detect changes
 let abc_images = ''; // Collects all SVG output generated during rendering. It will contain multiple SVG elements, typically one per staff/line of music
 let user: User; // IMPORTANT: user needs to be in the global scope for some modules to work properly (e.g. page module)
+let isMidiReady = false; // Tracks if the MIDI system is initialized
 
 // Variables needed for playback
 const play: PlayState = {};
@@ -183,10 +184,7 @@ abc2svg.loadjs = function(fn: string, relay?: (event?: any) => void, onerror?: (
 // Load snd-1.js for midi playback
 abc2svg.loadjs("snd-1.js", function() {
     console.log("snd-1.js loaded successfully");
-    play.abcplay = AbcPlay({
-        onend: endplay,
-        onnote: (note: any) => console.log("Playing note:", note),
-    });
+    isMidiReady = true;
 });
 
 abc2svg.abc_end = function() {}	// accept page formatting
@@ -598,11 +596,8 @@ document.addEventListener('mousedown', event => {
         // Check if the click is inside the sheet element but not on a button/control
         const sheetElement = document.getElementById('sheet');
         const isClickInsideSheet = sheetElement && sheetElement.contains(target);
-        const isClickOnControl = target.tagName === 'BUTTON' || 
-                                 target.closest('button') || 
-                                 target.id === 'play-button' ||
-                                 target.closest('#play-button');
-        
+        const isClickOnControl = target.tagName === 'BUTTON' || target.closest('button');
+
         if (isClickInsideSheet && !isClickOnControl && !cls.includes('selected-area')) {
             selectionManager.clear();
         }
@@ -689,10 +684,10 @@ document.addEventListener('mouseup', () => {
 document.addEventListener('keydown', (event) => {    
     // Space key triggers play if sheet is focused
     if (event.key === ' ' || event.code === 'Space') {
-        const playBtn = document.getElementById('play-button');
+        const playBtn = document.getElementById('play-pause-btn');
         if (playBtn) {
             playBtn.click();
-        } else if (play.abcplay) {
+        } else if (isMidiReady) {
             play_tune(selectionManager.active ? 1 : 0);
         }
     }
@@ -730,12 +725,37 @@ document.getElementById('open-web')?.addEventListener('click', () => {
  * Event handler for the Play button
  * Initiates playback of the current ABC tune
  */
-document.getElementById('play-button')?.addEventListener('click', (event) => {
+document.getElementById('play-pause-btn')?.addEventListener('click', (event) => {
     console.log('clicked on play');
     // Prevent the click from triggering document click handler
     event.stopPropagation();
+    const playPauseBtn = document.getElementById('play-pause-btn')!;
+    const iconPlay = document.getElementById('icon-play')!;
+    const iconPause = document.getElementById('icon-pause')!;
+
+    let firstTune = abc.tunes[0];
+    let voices = firstTune[1];
+    let chordVoice = voices.find((v:any) => v.id === "_chord");
+
+    if (play?.playing) {
+        play_tune(3); // Continue/stop playback
+
+        iconPlay.style.display = '';
+        iconPause.style.display = 'none';
+        playPauseBtn.setAttribute('aria-label', 'Play');
+        return;
+    }
     
-    if (play.abcplay) {
+    if (isMidiReady) {
+        play.abcplay = AbcPlay({
+            onend: endplay,
+            onnote: (note: any) => console.log("Playing note:", note),
+        });
+
+        iconPlay.style.display = 'none';
+        iconPause.style.display = '';
+        playPauseBtn.setAttribute('aria-label', 'Pause');
+
         console.log('launching play');
         // If there's an active selection, play that, otherwise play the whole tune
         play_tune(selectionManager.active ? 1 : 0);
