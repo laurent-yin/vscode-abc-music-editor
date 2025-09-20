@@ -128,6 +128,8 @@ interface PlayState {
     loop?: boolean;
     repv?: number;
     click?: any;
+    noteToResumeTo?: number;
+    stopRequested?: boolean;
 }
 
 // Interface for SVGElement className
@@ -186,7 +188,7 @@ abc2svg.loadjs("snd-1.js", function() {
     console.log("snd-1.js loaded successfully");
     play.abcplay = AbcPlay({
         onend: endplay,
-        onnote: (note: any) => console.log("Playing note:", note),
+        onnote: playNoteCallback,
     });
     isMidiReady = true;
 });
@@ -592,7 +594,8 @@ document.addEventListener('mousedown', event => {
             const idx = +match[1];
             mouseState.isSelecting = true;
             mouseState.lastIdx = idx;
-            selectionManager.start(idx);
+            selectionManager.start(idx);          
+            play.noteToResumeTo = 0; // Reset last played note
             event.preventDefault();
         }
     } else if (selectionManager.active) {
@@ -692,7 +695,7 @@ document.addEventListener('keydown', (event) => {
         if (playBtn) {
             playBtn.click();
         } else if (isMidiReady) {
-            play_tune(selectionManager.active ? 1 : 0);
+            play_tune(3);
         }
     }
     // Escape key clears selection
@@ -730,32 +733,53 @@ document.getElementById('open-web')?.addEventListener('click', () => {
  * Initiates playback of the current ABC tune
  */
 document.getElementById('play-pause-btn')?.addEventListener('click', (event) => {
-    console.log('clicked on play');
+    console.log('clicked on play/pause');
     // Prevent the click from triggering document click handler
     event.stopPropagation();
-    const playPauseBtn = document.getElementById('play-pause-btn')!;
-    const iconPlay = document.getElementById('icon-play')!;
-    const iconPause = document.getElementById('icon-pause')!;
 
     if (play?.playing) {
         play_tune(3); // Continue/stop playback
 
-        iconPlay.style.display = '';
-        iconPause.style.display = 'none';
-        playPauseBtn.setAttribute('aria-label', 'Play');
+        setPlayPauseIcon(true);
+        console.log('paused play. play.noteToResumeTo=', play.noteToResumeTo);
         return;
     }
     
     if (isMidiReady) {
+        setPlayPauseIcon(false);
+        console.log('launching play. play.noteToResumeTo=', play.noteToResumeTo);
+        // If there's an active selection, play that, otherwise play the whole tune
+        play_tune(3);
+    }
+});
+
+document.getElementById('stop-btn')?.addEventListener('click', (event) => {
+    // Prevent the click from triggering document click handler
+    event.stopPropagation();
+    
+    if (play?.playing) {
+        play.abcplay?.stop();
+    }
+    play.noteToResumeTo = 0;
+    play.stopRequested = true;
+    console.log('clicked on stop');
+});
+
+function setPlayPauseIcon(play: boolean): void {
+    const playPauseBtn = document.getElementById('play-pause-btn')!;
+    const iconPlay = document.getElementById('icon-play')!;
+    const iconPause = document.getElementById('icon-pause')!;
+
+    if (play) {
+        iconPlay.style.display = '';
+        iconPause.style.display = 'none';
+        playPauseBtn.setAttribute('aria-label', 'Play');
+    } else {
         iconPlay.style.display = 'none';
         iconPause.style.display = '';
         playPauseBtn.setAttribute('aria-label', 'Pause');
-
-        console.log('launching play');
-        // If there's an active selection, play that, otherwise play the whole tune
-        play_tune(selectionManager.active ? 1 : 0);
     }
-});
+}
 
 /**
  * Start playing the ABC tune
@@ -773,12 +797,11 @@ function play_tune(what: number): void {
     const C = abc2svg.C;
 
     if (play.playing) {
-        if (!play.stop) {
-            play.stop = -1;
-            play.abcplay?.stop();
-        }
+        play.abcplay?.stop();
         return;
     }
+
+    play.stopRequested = false;
 
     // Search a symbol to play
     function gnrn(sym: any, loop?: boolean): any {	// Go to the next real note (not tied)
@@ -884,8 +907,7 @@ function play_tune(what: number): void {
         selx_sav[1] = selx[1];
         setsel(0, 0);               // Clear selection during playback
         setsel(1, 0);
-
-        play.stop = 0;
+        
         // Call the AbcPlay instance to start playback
         play.abcplay?.play(si, ei, play.repv);
     }
@@ -901,19 +923,32 @@ function play_tune(what: number): void {
         }
 
         play.si = play.ei = null;
-        play.stop = 0;
+        play.noteToResumeTo = 0;
         play.loop = false;
-    }    
+    }
 
     // play data has been generated
     let firstTune = abc.tunes[0];
     let voices = firstTune[1];
     let chordVoice = voices.find((v:any) => v.id === "_chord");
 
-    let chordSim = chordVoice?.sym;
-    while (chordSim) {
-        // Do something with chordSim
-        chordSim = chordSim.ts_next;
+    // get the value of the #playchords checkbox
+    const playChordsCheckbox = document.getElementById('playchords') as HTMLInputElement;
+    let playChords = playChordsCheckbox.checked;
+    let chordSym = chordVoice?.sym;
+    while (chordSym) {
+        if (playChords)
+        {
+            if (chordSym.valBackup)
+                chordSym.val = chordSym.valBackup;
+        }
+        else
+        {
+            chordSym.valBackup = Math.max(chordSym.val, chordSym.valBackup || 0);
+            chordSym.val = 0;
+        }
+        // Do something with chordSym
+        chordSym = chordSym.ts_next;
     }
 
     // If loop again
@@ -923,8 +958,8 @@ function play_tune(what: number): void {
     }    // Get the starting and ending play indexes, and start playing
     let si, ei;
 
-    if (what == 3 && play.stop && play.stop > 0) {	// If stopped and continue
-        play_start(get_se(play.stop), play.ei);
+    if (what == 3 && play.noteToResumeTo && play.noteToResumeTo > 0) {	// If stopped and continue
+        play_start(get_se(play.noteToResumeTo), play.ei);
         return;
     }
     
@@ -983,6 +1018,11 @@ function play_tune(what: number): void {
     play_start(si, ei);
 }
 
+function playNoteCallback(i: any) {
+    play.noteToResumeTo = play.stopRequested ? 0 : i;
+    console.log('updated noteToResumeTo');
+}
+
 /**
  * Set or clear a selection highlight
  * @param idx Selection index (0=start, 1=end)
@@ -1011,7 +1051,9 @@ function endplay(repv?: number): void {
         return;
     }
     
+    setPlayPauseIcon(true);
     play.playing = false;
+    play.noteToResumeTo = 0;
     play.repv = repv || 0;		// Repeat variant number for continue
 
     // Redisplay the selection
