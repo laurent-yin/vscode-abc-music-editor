@@ -130,6 +130,7 @@ interface PlayState {
     click?: any;
     noteToResumeTo?: number;
     stopRequested?: boolean;
+    pauseRequested?: boolean;
 }
 
 // Interface for SVGElement className
@@ -738,6 +739,7 @@ document.getElementById('play-pause-btn')?.addEventListener('click', (event) => 
     event.stopPropagation();
 
     if (play?.playing) {
+        play.pauseRequested = true;
         play_tune(3); // Continue/stop playback
 
         setPlayPauseIcon(true);
@@ -802,6 +804,7 @@ function play_tune(what: number): void {
     }
 
     play.stopRequested = false;
+    play.pauseRequested = false;
 
     // Search a symbol to play
     function gnrn(sym: any, loop?: boolean): any {	// Go to the next real note (not tied)
@@ -1053,7 +1056,11 @@ function endplay(repv?: number): void {
     
     setPlayPauseIcon(true);
     play.playing = false;
-    play.noteToResumeTo = 0;
+    if (!play.pauseRequested) {
+        // If we reached the end, reset the resume point
+        // so that next play starts from the beginning
+        play.noteToResumeTo = 0;
+    }
     play.repv = repv || 0;		// Repeat variant number for continue
 
     // Redisplay the selection

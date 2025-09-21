@@ -2,7 +2,7 @@
 	"name": "abc-to-svg",
 	"displayName": "ABC Notation Support",
 	"description": "Support for ABC Music Notation using abc2svg.",
-	"version": "0.4.6",
+	"version": "0.4.7",
 	"engines": {
 		"vscode": "^1.99.0"
 	},
