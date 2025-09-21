@@ -1,41 +1,76 @@
 <!DOCTYPE html>
 <html lang="en" allow="midi">
-  <head>
+
+<head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>ABC Preview</title>
 	<style>
-	  #play-button { margin: 10px; padding: 6px 12px; font-size: 14px; }
+		#play-button {
+			margin: 10px;
+			padding: 6px 12px;
+			font-size: 14px;
+		}
 
-	  /* Block display for SVG prevents gaps between musical lines */
-	  svg { display: block; } /* important to remove white bands between each svg block */
-	  svg text { user-select: none; } /* Prevents text selection in SVG */
-	  .showbox svg { background: white; }
-      #sheet.showbox { background-color: lightgray;} 
+		/* Block display for SVG prevents gaps between musical lines */
+		svg {
+			display: block;
+		}
+
+		/* important to remove white bands between each svg block */
+		svg text {
+			user-select: none;
+		}
+
+		/* Prevents text selection in SVG */
+		.showbox svg {
+			background: white;
+		}
+
+		#sheet.showbox {
+			background-color: lightgray;
+		}
 	</style>
-    <script>
-      /* 
-       * baseUri is replaced by the extension with the actual URI to access resources
-       * This is used to load scripts and other resources with the correct path
-       */
-      window.baseUri = '__BASE_URI__';
-    </script>
+	<script>
+		/* 
+		 * baseUri is replaced by the extension with the actual URI to access resources
+		 * This is used to load scripts and other resources with the correct path
+		 */
+		window.baseUri = '__BASE_URI__';
+	</script>
 	<!-- 
 	 * abc2svg-1.js - Main library that converts ABC notation to SVG graphics
 	 * This library provides the core functionality for rendering musical notation
 	 -->
-	<script src="__BASE_URI__/lib/abc2svg-1.js"" type="text/javascript"></script>
+	<script src="__BASE_URI__/lib/abc2svg-1.js"" type=" text/javascript"></script>
 	<!-- 
 	 * lz-string.min.js - Compression library used when sharing ABC content with external editor
 	 * Used by the "Open in Michael Eskin's Web Editor" button to compress ABC data for URL parameters
 	 -->
-	<script src="__BASE_URI__/out/lib/lz-string.min.js"" type="text/javascript"></script>
-  </head>
-  <body>
+	<script src="__BASE_URI__/out/lib/lz-string.min.js"" type=" text/javascript"></script>
+</head>
+
+<body>
 	<!-- Play button that triggers MIDI playback of the ABC music -->
-	<button id="play-button">Play</button>
+	<button id="play-pause-btn" aria-label="Play">
+		<!-- Play icon (default) -->
+		<svg id="icon-play" width="24" height="24" viewBox="0 0 24 24">
+			<polygon points="6,4 20,12 6,20" fill="#000000" />
+		</svg>
+		<!-- Pause icon (hidden by default) -->
+		<svg id="icon-pause" width="24" height="24" viewBox="0 0 24 24" style="display:none">
+			<rect x="6" y="4" width="4" height="16" fill="#000000" />
+			<rect x="14" y="4" width="4" height="16" fill="#000000" />
+		</svg>
+	</button>
+	<button id="stop-btn" aria-label="Stop" style="margin-left:8px;">
+		<svg width="24" height="24" viewBox="0 0 24 24">
+			<rect x="5" y="5" width="14" height="14" fill="#000000" />
+		</svg>
+	</button>
 	<!-- Button to open the current ABC content in an external web editor -->
 	<button id="open-web">Open Web Editor</button>
+	<input type="checkbox" id="playchords" checked /><label for="playchords">Play Chords</label>
 	<!-- 
 	 * The #sheet div is the container where all SVG music notation will be rendered
 	 * abc.tosvg() will generate SVG content that gets inserted here via abc_images
@@ -51,5 +86,6 @@
 	 * 4. Communication with the VS Code extension
 	 -->
 	<script src="__BASE_URI__/out/webview/preview.js"></script>
-  </body>
-  </html>
+</body>
+
+</html>
