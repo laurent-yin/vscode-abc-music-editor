@@ -117,6 +117,7 @@ interface AbcPlay {
     play: (si: any, ei: any, repv?: number) => void;
     stop: () => void;
     add: (start: any, voice: any, options?: any) => void;
+    set_sfu: (url?: string) => string | void;
 }
 
 interface PlayState {
@@ -171,7 +172,12 @@ document.addEventListener('contextmenu', (event) => {
  */
 abc2svg.loadjs = function(fn: string, relay?: (event?: any) => void, onerror?: (event?: any) => void): void {
     const script = document.createElement('script');
-    script.src = `${(window as any).baseUri}/lib/${fn}`;
+    // Check if the URL is already absolute (external URL)
+    if (fn.startsWith('http://') || fn.startsWith('https://')) {
+        script.src = fn;
+    } else {
+        script.src = `${(window as any).baseUri}/lib/${fn}`;
+    }
     script.type = 'text/javascript';
     script.onload = (event) => {
         console.log('loaded module ' + fn);
@@ -297,6 +303,13 @@ window.addEventListener('message', event => {
                 // This is the main call that starts the rendering process
                 // It will call user.img_out() multiple times with SVG content
                 abc.tosvg('abc', abcContent);
+                
+                // Update soundfont URL if specified in ABC content via %%soundfont directive
+                const soundfont = abc.cfmt()?.soundfont;
+                if (soundfont && play.abcplay) {
+                    console.log("setting soundfont to", soundfont);
+                    play.abcplay.set_sfu(soundfont);
+                }
                 
                 // Insert all the collected SVG content into the DOM
                 console.log('inserting SVG content into the DOM, length:', abc_images.length);
