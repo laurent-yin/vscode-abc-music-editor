@@ -2,7 +2,7 @@
 	"name": "abc-to-svg",
 	"displayName": "ABC Notation Support",
 	"description": "Support for ABC Music Notation using abc2svg.",
-	"version": "0.4.8",
+	"version": "0.4.9",
 	"engines": {
 		"vscode": "^1.99.0"
 	},
@@ -92,7 +92,8 @@
 		]
 	},
 	"scripts": {
-		"vscode:prepublish": "npm run build",
+		"vscode:prepublish": "npm run clean && npm run build",
+		"clean": "rm -rf out",
 		"build": "tsc -p ./ && npm run copy-assets",
 		"copy-assets": "copyfiles -f \"lib/*.*\" \"node_modules/lz-string/libs/lz-string.min.js\" out/lib && copyfiles -f \"src/webview/webview.html\" out/webview",
 		"lint": "eslint src --ext ts",
