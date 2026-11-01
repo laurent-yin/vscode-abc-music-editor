@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "declaration": false
+  },
+  "include": ["src/webview/**/*.ts", "src/shared/**/*.ts"],
+  "exclude": ["node_modules"]
+}

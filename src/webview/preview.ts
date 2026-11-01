@@ -1,3 +1,9 @@
+import { PersonalControls } from './preferences.js';
+import { sourceModel, inventories, filterSelections, createPlan, maskAudio } from './renderer.js';
+import type { PreviewPlan, MusicVoice, MusicSymbol, Model } from './renderer.js';
+import type { RenderMessage } from '../shared/protocol.js';
+import { refreshFileVoices } from 'abctools/preferences';
+
 /**
  * This file handles the conversion of ABC notation to SVG graphics in the webview
  * Key steps in the process:
@@ -39,6 +45,7 @@ interface ABC2SVG {
 }
 
 interface AbcInstance {
+    gch_tr1(text: string, interval: number): string;
     /**
      * Converts ABC notation to SVG
      * @param id Identifier for the tune
@@ -78,6 +85,7 @@ interface AbcInstance {
 }
 
 interface User {
+    get_abcmodel?: (first: MusicSymbol, voices: MusicVoice[], names: unknown, info: Record<string, string>) => void;
     /**
      * Callback to handle image output
      * @param s SVG string to append to the output
@@ -148,6 +156,24 @@ declare const LZString: any;
 
 // Initialize variables
 const vscode = acquireVsCodeApi();
+const personalControls = new PersonalControls(message => {
+    if (message && typeof message === 'object' && 'command' in message && message.command === 'preferences') stopForChange();
+    vscode.postMessage(message);
+});
+let renderGeneration = 0;
+let currentMessage: RenderMessage | undefined;
+let previewPlan: PreviewPlan | undefined;
+let playbackModel: Model | undefined;
+let displayTuneIndex = 0;
+let playerGeneration = 0;
+
+function createPlayer(): AbcPlay {
+    const generation = ++playerGeneration;
+    return AbcPlay({
+        onend(repv) { if (generation === playerGeneration) endplay(repv); },
+        onnote(note) { if (generation === playerGeneration) playNoteCallback(note); }
+    });
+}
 let abc: AbcInstance;
 let currentAbcContent = ''; // Store the current ABC text to detect changes
 let abc_images = ''; // Collects all SVG output generated during rendering. It will contain multiple SVG elements, typically one per staff/line of music
@@ -193,10 +219,7 @@ abc2svg.loadjs = function(fn: string, relay?: (event?: any) => void, onerror?: (
 // Load snd-1.js for midi playback
 abc2svg.loadjs("snd-1.js", function() {
     console.log("snd-1.js loaded successfully");
-    play.abcplay = AbcPlay({
-        onend: endplay,
-        onnote: playNoteCallback,
-    });
+    play.abcplay = createPlayer();
     isMidiReady = true;
 });
 
@@ -204,11 +227,98 @@ abc2svg.abc_end = function() {}	// accept page formatting
 
 // Process messages received from the extension
 window.addEventListener('message', event => {
-    const msg = event.data;
-    if (msg.command === 'render') {
-        // Store the content in the outer scope variable
-        const abcContent = msg.content;
-        currentAbcContent = abcContent;
+    if (event.data.command === 'render') void renderPersonalPreview(event.data);
+    else if (event.data.command === 'preferenceError') {
+        renderGeneration++;
+        stopForChange();
+        personalControls.error(event.data.message);
+    }
+});
+
+function stopForChange(): void {
+    play.loop = false;
+    play.stopRequested = true;
+    play.pauseRequested = false;
+    play.abcplay?.stop();
+    play.playing = false;
+    play.noteToResumeTo = 0;
+    play.si = play.ei = null;
+    setPlayPauseIcon(true);
+}
+
+async function renderPersonalPreview(message: RenderMessage): Promise<void> {
+    const generation = ++renderGeneration;
+    currentMessage = message;
+    stopForChange();
+    playbackModel = undefined;
+    previewPlan = undefined;
+    const div = document.getElementById('sheet')!;
+    div.replaceChildren();
+    try {
+        await new Promise<void>((resolve, reject) => {
+            if (abc2svg.modules.load(message.content, resolve, error => reject(new Error(String(error))))) resolve();
+        });
+        if (generation !== renderGeneration) return;
+        const original = sourceModel(message.content);
+        const inventory = inventories(original);
+        // Keep reset/filter controls available even if a saved regex times out
+        // or is unsupported by this webview's JavaScript engine.
+        personalControls.render(message, {
+            inventories: inventory,
+            selections: inventory.map(tune => ({
+                display: { ids: tune.voices.map(voice => voice.id), notices: [] },
+                playback: { ids: tune.voices.map(voice => voice.id), notices: [] }
+            })),
+            notices: []
+        });
+        const selections = await filterSelections(message.preferences, inventory.map(tune => tune.voices));
+        if (generation !== renderGeneration) return;
+        const defaults = await filterSelections(message.defaultChoices, inventory.map(tune => tune.voices));
+        if (generation !== renderGeneration) return;
+        // Resolve legacy regex filters in the worker before refreshing portable IDs.
+        const fileChoices = structuredClone(message.fileChoices);
+        const defaultChoices = structuredClone(message.defaultChoices);
+        for (const operation of ['display', 'playback'] as const) {
+            if (fileChoices[operation]) fileChoices[operation]!.selectedVoiceIds = [...new Set(selections.flatMap(selection => selection[operation].ids))];
+            defaultChoices[operation] = { selectedVoiceIds: [...new Set(defaults.flatMap(selection => selection[operation].ids))] };
+        }
+        const refreshed = refreshFileVoices(fileChoices, defaultChoices, inventory.flatMap(tune => tune.voices));
+        if (JSON.stringify(refreshed) !== JSON.stringify(message.fileChoices)) {
+            personalControls.render(message, { inventories: inventory, selections, notices: [] });
+            personalControls.refresh(refreshed);
+            return;
+        }
+        personalControls.render(message, { inventories: inventory, selections, notices: [] });
+        const plan = createPlan(message.content, message.preferences, original, selections);
+        previewPlan = plan;
+        playbackModel = plan.audio;
+        tunes = [];
+        if (isMidiReady) play.abcplay = createPlayer();
+        syms = [];
+        for (const tune of plan.audio.tunes) for (const voice of tune[1]) {
+            for (let symbol = voice.sym; symbol; symbol = symbol.next) {
+                if (symbol.istart !== undefined) syms[symbol.istart] = symbol;
+                // Selection of a grace note plays its complete timed grace group.
+                for (let grace = symbol.extra; grace; grace = grace.next) {
+                    if (grace.istart !== undefined) syms[grace.istart] = symbol;
+                }
+            }
+        }
+        selx_sav[0] = selx_sav[1] = 0;
+        currentAbcContent = message.content;
+        renderAbcContent(plan.content);
+        personalControls.render(message, plan, plan.inventories[0]?.key);
+    } catch (error) {
+        if (generation === renderGeneration) {
+            stopForChange();
+            playbackModel = undefined;
+            div.replaceChildren();
+            personalControls.error(String(error));
+        }
+    }
+}
+
+function renderAbcContent(abcContent: string): void {
         const div = document.getElementById('sheet') as HTMLDivElement;
         div.innerHTML = '';
         abc_images = ''; // Reset accumulated SVG content
@@ -216,19 +326,22 @@ window.addEventListener('message', event => {
         if (abc2svg) {            
             // Configure the user object with callbacks that abc2svg will use during rendering
             user = {
+                get_abcmodel(_first, voices, _names, info) {
+                    displayTuneIndex = playbackModel?.tunes.findIndex(tune => tune[2].X === info.X && tune[2].T === info.T) ?? -1;
+                    if (displayTuneIndex < 0 || !previewPlan) throw new Error('Cannot associate fitted display with its source tune.');
+                    previewPlan.prepareDisplay(abc, voices, displayTuneIndex);
+                },
                 // img_out is called by abc2svg for each SVG snippet it generates
                 // These snippets are accumulated in abc_images and later inserted into the DOM
                 img_out: (s: string) => {
-                    abc_images += s; 
+                    if (previewPlan?.selections[displayTuneIndex]?.display.ids.length) abc_images += s;
                 },
                 
                 // Set SVG image size to be responsive
                 imagesize: 'width="100%"',
                 
                 // Forward error messages to VS Code
-                errmsg: (msg: string, line?: number, col?: number) => { 
-                    vscode.postMessage({ command: 'error', message: msg, line, col }); 
-                },
+                errmsg: (message: string) => { throw new Error(message); },
                 
                 // anno_stop creates interactive rectangles for each musical element
                 // Output: Generates invisible SVG rectangles that can be used for selection/interaction
@@ -238,11 +351,11 @@ window.addEventListener('message', event => {
                     if (["beam", "slur", "tuplet"].indexOf(type) >= 0)
                         return;
                     
-                    // Store the music symbol for later use (e.g., playback)
-                    syms[start] = s;
-
                     if (["note", "rest", "Zrest"].indexOf(type) == -1)
                         return;
+                    const canonical = previewPlan?.symbolFor(s, displayTuneIndex);
+                    if (canonical?.istart === undefined) return;
+                    start = canonical.istart;
             
                     // Create a rectangle element for this musical symbol
                     // This rectangle will be invisible initially but can be highlighted when selected
@@ -326,25 +439,16 @@ window.addEventListener('message', event => {
 
             // Reset selection and symbols before re-render
             selx[0] = selx[1] = 0;
-            syms = [];
             
             // Create a new ABC instance with our user callbacks
             abc = new abc2svg.Abc(user);
             
-            // Try to load any modules that might be needed based on the ABC content
-            // This checks for special annotations in the ABC that require additional modules
-            if (abc2svg.modules.load(abcContent, () => {
-                console.log('rendering after loading modules');
-                renderAbc(abcContent, div);
-            }, console.error)) {
-                // If modules.load returns true, it means no modules needed loading
-                // or they were already loaded, so we can render immediately
-                console.log('rendering when modules.load returns true');
-                renderAbc(abcContent, div);
-            }
+            // Modules were awaited by renderPersonalPreview before model creation.
+            renderAbc(abcContent, div);
         }
-    }
-});
+}
+
+vscode.postMessage({ command: 'ready' });
 
 /**
  * Add necessary SVG overlay elements for selection
@@ -703,8 +807,11 @@ document.addEventListener('mouseup', () => {
 
 // Keyboard shortcuts for selection
 document.addEventListener('keydown', (event) => {    
+    // Let native controls own their keys (checkbox Space, text entry, buttons).
+    if (event.target instanceof Element && event.target.closest('input, textarea, select, button, summary, [contenteditable="true"]')) return;
     // Space key triggers play if sheet is focused
     if (event.key === ' ' || event.code === 'Space') {
+        event.preventDefault();
         const playBtn = document.getElementById('play-pause-btn');
         if (playBtn) {
             playBtn.click();
@@ -760,7 +867,7 @@ document.getElementById('play-pause-btn')?.addEventListener('click', (event) => 
         return;
     }
     
-    if (isMidiReady) {
+    if (isMidiReady && playbackModel && previewPlan) {
         setPlayPauseIcon(false);
         console.log('launching play. play.noteToResumeTo=', play.noteToResumeTo);
         // If there's an active selection, play that, otherwise play the whole tune
@@ -772,12 +879,7 @@ document.getElementById('stop-btn')?.addEventListener('click', (event) => {
     // Prevent the click from triggering document click handler
     event.stopPropagation();
     
-    if (play?.playing) {
-        play.abcplay?.stop();
-    }
-    play.noteToResumeTo = 0;
-    play.stopRequested = true;
-    console.log('clicked on stop');
+    stopForChange();
 });
 
 function setPlayPauseIcon(play: boolean): void {
@@ -806,7 +908,7 @@ function setPlayPauseIcon(play: boolean): void {
  * 3. Call play.abcplay.play() with the start and end symbols
  */
 function play_tune(what: number): void {
-    if (!abc)
+    if (!playbackModel || !previewPlan)
         return;			// No generation yet
     
     const C = abc2svg.C;
@@ -929,42 +1031,19 @@ function play_tune(what: number): void {
     }
 
     play.playing = true;
-    if (tunes != abc.tunes) {		// If new display
-        tunes = abc.tunes;
+    if (tunes != playbackModel.tunes) {
+        tunes = playbackModel.tunes;
 
         // Generate the play data of all tunes
         for (let i = 0; i < tunes.length; i++) {
             const elt = tunes[i];
             play.abcplay?.add(elt[0], elt[1], elt[3]);
         }
+        maskAudio(playbackModel.tunes, previewPlan.selections, currentMessage?.preferences.playback.chords);
 
         play.si = play.ei = null;
         play.noteToResumeTo = 0;
         play.loop = false;
-    }
-
-    // play data has been generated
-    let firstTune = abc.tunes[0];
-    let voices = firstTune[1];
-    let chordVoice = voices.find((v:any) => v.id === "_chord");
-
-    // get the value of the #playchords checkbox
-    const playChordsCheckbox = document.getElementById('playchords') as HTMLInputElement;
-    let playChords = playChordsCheckbox.checked;
-    let chordSym = chordVoice?.sym;
-    while (chordSym) {
-        if (playChords)
-        {
-            if (chordSym.valBackup)
-                chordSym.val = chordSym.valBackup;
-        }
-        else
-        {
-            chordSym.valBackup = Math.max(chordSym.val, chordSym.valBackup || 0);
-            chordSym.val = 0;
-        }
-        // Do something with chordSym
-        chordSym = chordSym.ts_next;
     }
 
     // If loop again
@@ -1007,7 +1086,8 @@ function play_tune(what: number): void {
         /* elt = play.click.svg		// (dummy)
         si = elt.getAttribute('class') */
 
-        si = 'tune0'; // Dummy for tests
+        const tuneSelect = document.getElementById('playback-tune') as HTMLSelectElement | null;
+        si = `tune${tuneSelect?.value ?? '0'}`;
         const siMatch = /tune(\d*)/.exec(si);
         if (!siMatch) {
             play.playing = false;

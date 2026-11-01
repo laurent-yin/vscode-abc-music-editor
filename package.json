@@ -31,6 +31,18 @@
 					"light": "resources/icons/light/quaver.svg",
 					"dark": "resources/icons/dark/quaver.svg"
 				}
+			},
+			{
+				"command": "vscode-abc-music-editor.choosePreferences",
+				"title": "ABC: Choose Personal Preferences Folder"
+			},
+			{
+				"command": "vscode-abc-music-editor.useAppPreferences",
+				"title": "ABC: Use App-managed Personal Preferences"
+			},
+			{
+				"command": "vscode-abc-music-editor.reloadPreferences",
+				"title": "ABC: Reload Personal Preferences"
 			}
 		],
 		"configurationDefaults": {
@@ -94,12 +106,13 @@
 	"scripts": {
 		"vscode:prepublish": "npm run clean && npm run build",
 		"clean": "rm -rf out",
-		"build": "tsc -p ./ && npm run copy-assets",
-		"copy-assets": "copyfiles -f \"lib/*.*\" \"node_modules/lz-string/libs/lz-string.min.js\" out/lib && copyfiles -f \"src/webview/webview.html\" out/webview",
+		"build": "tsc -p ./ && tsc -p tsconfig.webview.json && npm run copy-assets",
+		"copy-assets": "copyfiles -f \"lib/*.*\" \"node_modules/lz-string/libs/lz-string.min.js\" \"node_modules/abctools/dist/preferences.js\" out/lib && copyfiles -f \"src/webview/webview.html\" \"src/webview/package.json\" out/webview",
 		"lint": "eslint src --ext ts",
 		"watch": "tsc -watch -p ./",
 		"pretest": "npm run build && npm run lint",
-		"test": "node ./out/test/runTest.js"
+		"test": "node --test test/*.test.mjs",
+		"test:host": "npm run build && node test/run-extension-host.mjs"
 	},
 	"devDependencies": {
 		"@types/node": "^22.14.1",
@@ -112,7 +125,7 @@
 		"vscode-test": "^1.6.1"
 	},
 	"dependencies": {
-		"abctools": "^0.1.10",
+		"abctools": "file:../abctools",
 		"lz-string": "^1.5.0"
 	}
 }

@@ -1,16 +1,59 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { getEffectiveAbcConfig } from 'abctools';
+import { createHash } from 'node:crypto';
+import { PreferenceStore, PreferenceSnapshot } from './preferenceStore.js';
+import type { RenderMessage, PreferenceMessage } from '../shared/protocol.js';
 
 let diagnosticCollection: vscode.DiagnosticCollection;
 let panel: vscode.WebviewPanel | undefined;
+let extensionContext: vscode.ExtensionContext;
+let previewDocument: vscode.TextDocument | undefined;
+let ready = false;
+let revision = 0;
+let snapshot: PreferenceSnapshot | undefined;
+let store: PreferenceStore | undefined;
+let saving = false;
+
+function libraryRoot(document: vscode.TextDocument): string {
+    return vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath ?? path.dirname(document.fileName);
+}
+function preferenceStore(document: vscode.TextDocument): PreferenceStore {
+    const root = libraryRoot(document);
+    const selected = extensionContext.workspaceState.get<string>(`preferences:${root}`);
+    const hash = createHash('sha256').update(root).digest('hex');
+    return new PreferenceStore(selected ?? path.join(extensionContext.globalStorageUri.fsPath, hash, 'preferences.json'));
+}
+function reportPreviewError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(error);
+    void panel?.webview.postMessage({ command: 'preferenceError', message });
+    void vscode.window.showErrorMessage(`ABC preview: ${message}`);
+}
 
 export function activate(context: vscode.ExtensionContext) {
+    extensionContext = context;
 	try {
 		/* Show the music score on a separate webview panel */
 		let showMusicCommand = vscode.commands.registerCommand('vscode-abc-music-editor.showMusicsheet', () => showMusicPreview(context));
 		context.subscriptions.push(showMusicCommand);
+        context.subscriptions.push(vscode.commands.registerCommand('vscode-abc-music-editor.choosePreferences', async () => {
+            const document = previewDocument ?? vscode.window.activeTextEditor?.document;
+            if (!document || document.languageId !== 'abc') return;
+            const folders = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: 'Use Preferences Folder' });
+            if (!folders?.length) return;
+            await context.workspaceState.update(`preferences:${libraryRoot(document)}`, path.join(folders[0].fsPath, 'preferences.json'));
+            await postAbcToWebview(document);
+        }));
+        context.subscriptions.push(vscode.commands.registerCommand('vscode-abc-music-editor.useAppPreferences', async () => {
+            const document = previewDocument ?? vscode.window.activeTextEditor?.document;
+            if (!document) return;
+            await context.workspaceState.update(`preferences:${libraryRoot(document)}`, undefined);
+            await postAbcToWebview(document);
+        }));
+        context.subscriptions.push(vscode.commands.registerCommand('vscode-abc-music-editor.reloadPreferences', async () => {
+            if (previewDocument) await postAbcToWebview(previewDocument);
+        }));
 		
 		// Listen for text document changes to refresh the preview
 		context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(handleTextDocumentChange));
@@ -85,32 +128,74 @@ async function handleTextDocumentChange(e: vscode.TextDocumentChangeEvent) {
 	if (e.document.languageId !== 'abc') return;
 
 	// show errors and refresh preview whenever the text changes
-	postAbcToWebview(e.document);
+	if (previewDocument?.uri.toString() === e.document.uri.toString()) await postAbcToWebview(e.document);
 }
   
 
-function postAbcToWebview(document: vscode.TextDocument) {
-	if (!panel) return;
+async function postAbcToWebview(document: vscode.TextDocument): Promise<void> {
+    previewDocument = document;
+    const currentRevision = ++revision;
+    if (!panel || !ready) return;
+    try {
+        if (document.uri.scheme !== 'file') throw new Error('Personal ABC preview currently requires a local file. Save this document to a library first.');
+        const root = libraryRoot(document);
+        const selectedStore = preferenceStore(document);
+        const [selectedSnapshot, tools, preferences] = await Promise.all([
+            selectedStore.read(), import('abctools'), import('abctools/preferences')
+        ]);
+        const resourceKey = path.relative(root, document.fileName).split(path.sep).join('/');
+        const effective = preferences.resolvePreferences(selectedSnapshot.value, resourceKey);
+        const { mergedDirectives, body } = tools.getEffectiveAbcConfig(root, document.fileName, document.getText());
+        if (currentRevision !== revision || !panel) return;
+        store = selectedStore;
+        snapshot = selectedSnapshot;
+        panel.title = `ABC Preview: ${path.basename(document.fileName)}`;
+        const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+        const message: RenderMessage = {
+            command: 'render', documentId: document.uri.toString(), revision: currentRevision,
+            resourceKey, content: `${mergedDirectives}${eol}${eol}${body}`,
+            preferences: effective, fileChoices: selectedSnapshot.value.files?.[resourceKey] ?? {},
+            defaultChoices: preferences.resolvePreferences({ version: 1, defaults: selectedSnapshot.value.defaults }, resourceKey),
+            origin: selectedSnapshot.value.files?.[resourceKey] ? 'file' : 'defaults',
+            storageLabel: selectedStore.filename
+        };
+        diagnosticCollection.set(document.uri, []);
+        await panel.webview.postMessage(message);
+    } catch (error) { if (currentRevision === revision) reportPreviewError(error); }
+}
 
-	panel.title = `ABC Preview: ${path.basename(document.fileName)}`;
-
-    const workspaceFolders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) || [];
-    // find the root directory for the current document
-    let rootDir = workspaceFolders.find(root => document.fileName.startsWith(root)) || path.dirname(document.fileName);
-
-    // take into account directives from .abcconfig files
-    const { mergedDirectives, body } = getEffectiveAbcConfig(rootDir, document.fileName, document.getText());
-
-    const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
-    const mergedContent = `${mergedDirectives}${eol}${eol}${body}`;
-
-    diagnosticCollection.set(document.uri, []);
-
-    panel.webview.postMessage({
-        command: 'render',
-        content: mergedContent
-    });
-  }
+async function savePreferences(message: PreferenceMessage): Promise<void> {
+    let ownsSave = false;
+    try {
+        if (saving || !previewDocument || !store || !snapshot || message.documentId !== previewDocument.uri.toString() || message.revision !== revision) {
+            throw new Error('This preview changed before the preferences could be saved. Reload preferences and try again.');
+        }
+        saving = true;
+        ownsSave = true;
+        const document = previewDocument;
+        const selectedStore = store;
+        const selectedSnapshot = snapshot;
+        const tools = await import('abctools/preferences');
+        if (message.revision !== revision) throw new Error('The document changed before saving preferences. Try again from the refreshed preview.');
+        const resourceKey = tools.validateResourceKey(path.relative(libraryRoot(document), document.fileName).split(path.sep).join('/'));
+        const value = structuredClone(selectedSnapshot.value);
+        const files = value.files ??= {};
+        if (message.action === 'reset') {
+            delete files[resourceKey];
+        } else if (message.action === 'file') {
+            files[resourceKey] = tools.validateChoices(message.choices);
+        } else if (message.action === 'defaults') {
+            const choices = tools.validateChoices(message.choices);
+            const { transposition: _transposition, ...personal } = choices;
+            value.defaults = personal;
+        } else {
+            throw new Error('Unknown preference action');
+        }
+        await selectedStore.write(value, selectedSnapshot.revision);
+        if (previewDocument) await postAbcToWebview(previewDocument);
+    } catch (error) { reportPreviewError(error); }
+    finally { if (ownsSave) saving = false; }
+}
 
 function showMusicPreview(context: vscode.ExtensionContext) {
 
@@ -118,6 +203,13 @@ function showMusicPreview(context: vscode.ExtensionContext) {
 	if (!editor || editor.document.languageId !== "abc") {
 	  return;
 	}
+    if (panel) {
+        panel.reveal(vscode.ViewColumn.Beside);
+        void postAbcToWebview(editor.document);
+        return;
+    }
+    previewDocument = editor.document;
+    ready = false;
 
 	// webview panel for live preview
 	panel = vscode.window.createWebviewPanel('musicSheet', 'ABC Preview', vscode.ViewColumn.Beside, {
@@ -139,18 +231,30 @@ function showMusicPreview(context: vscode.ExtensionContext) {
 
     panel.webview.html = getWebviewHtml(baseUri);
 
-	// TODO sometimes not ready to accept messages at this point
-	console.log("Sending ABC to webview");
-	postAbcToWebview(editor.document)
-
 	// handle messages from the webview
 	panel.webview.onDidReceiveMessage(message => {
 		switch (message.command) {
+            case 'ready':
+                ready = true;
+                if (previewDocument) void postAbcToWebview(previewDocument);
+                return;
+            case 'preferences':
+                void savePreferences(message);
+                return;
+            case 'choosePreferences':
+                void vscode.commands.executeCommand('vscode-abc-music-editor.choosePreferences');
+                return;
+            case 'reloadPreferences':
+                void vscode.commands.executeCommand('vscode-abc-music-editor.reloadPreferences');
+                return;
 			case 'selection':
-				jumpToPosition(message.start, message.stop); // known issue: doesn't work if fit2box module is activated, as it rewrites the tune
+                // Configuration, projections and fit2box do not yet supply a
+                // composed source map. Never jump to a misleading source offset.
 				return;
 			case 'error':
-				showDiagnostics(message.message, message.line, message.col);
+                if (message.documentId === previewDocument?.uri.toString() && message.revision === revision) {
+                    console.error(`ABC renderer: ${message.message}`);
+                }
 				return;
 			case 'openLink':
 				if (message.url) {
@@ -162,6 +266,8 @@ function showMusicPreview(context: vscode.ExtensionContext) {
 
 	panel.onDidDispose(() => {
 		panel = undefined;
+        ready = false;
+        revision++;
 	  });
 }
 
