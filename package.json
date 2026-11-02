@@ -125,7 +125,7 @@
 		"vscode-test": "^1.6.1"
 	},
 	"dependencies": {
-		"abctools": "file:../abctools",
+		"abctools": "0.2.0",
 		"lz-string": "^1.5.0"
 	}
 }

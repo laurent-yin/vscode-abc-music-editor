@@ -173,15 +173,10 @@ yet provide a composed source map. Errors are shown in the preview instead.
 
 ## Development and validation
 
-This checkout currently uses the sibling `../abctools` package via a local
-dependency. Build it first, then install/build this extension. Replace that
-dependency with a published compatible version before distributing a release.
+The extension uses the published `abctools@0.2.0` npm package, including its
+portable preferences and configuration APIs. No sibling checkout is required.
 
 ```sh
-cd ../abctools
-npm install
-npm test
-cd ../vscode-abc-music-editor
 npm install
 npm test
 npm run test:host
