@@ -176,6 +176,13 @@ yet provide a composed source map. Errors are shown in the preview instead.
 The extension uses the published `abctools@0.2.0` npm package, including its
 portable preferences and configuration APIs. No sibling checkout is required.
 
+Development tooling requires Node.js 20.19+, 22.13+, or 24+. This does not
+change the extension's VS Code runtime requirement. ESLint and TypeScript-ESLint
+use a patched minimatch 11 override because their declared minimatch 10
+dependencies are covered by GHSA-g3hv-75wg-m249. Revisit the override when
+upstream dependencies adopt the fix. Asset copying uses Node's filesystem APIs
+rather than the legacy copyfiles/glob dependency chain.
+
 ```sh
 npm install
 npm test
