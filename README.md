@@ -42,6 +42,11 @@ to expand its voice checkboxes. Voice labels use declared names with IDs for
 clarity. **Chords** is a checkbox in both menus: chord labels for Display,
 generated accompaniment for Playback. Each change saves a file preference;
 unchecking every voice really hides or mutes every voice.
+When Display Chords is enabled, chord labels prefer a selected staff whose
+authored chord position is visible, preserving above/below placement. If only
+chord-hidden staves are selected, the preview shows the chords above a selected
+staff instead. Labels are deduplicated per notation transposition, not assigned
+to a hidden chord position. Source chord visibility and playback are unchanged.
 
 In the gear panel, set **By default, hide voices matching** for Display and
 **By default, mute voices matching** for Playback. Separate multiple patterns
@@ -157,9 +162,18 @@ rewrites. Ordinary exports and shared `.abcconfig` files are unaffected.
 
 ### Current renderer boundaries
 
-Simple separate-voice staff layouts are supported, including existing plain
-`%%score` selectors. Grouped/changing staff layouts and voice overlays are
-rejected explicitly.
+Separate-voice staff layouts support plain selectors and static, non-nested
+brace/bracket groups such as `%%score { melody bass }`. Voice selections retain
+the authored staff order and groups; a group collapses when only one staff
+remains. Selected voices omitted by an authored selector are appended.
+Shared-staff/floating/barline operators, nested or changing layouts, layout
+directives after the initial `K:`, legacy braced `%%staves` groups of more than
+two voices are rejected explicitly. Voice overlays (`&` simultaneous branches)
+remain part of their authored parent voice: they share its display/playback
+selection and instrument notation, without separate checkboxes.
+The bundled abc2svg parser includes a local correction for first-measure
+overlay timing in hidden voices, preventing spurious duration errors and
+extra trailing rests when a multi-branch overlay's parent is deselected.
 Conflicting simultaneous harmonies, or hidden chords with no available event
 at the same time in the selected staff, also produce explicit errors rather
 than silently dropping or changing harmony.

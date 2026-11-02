@@ -99,6 +99,34 @@ test('single-voice view inherits hidden harmony; combined equal views deduplicat
     const conflicting = planFor({}, fixture.replace('[V:low] C,', '[V:low] "Dm" C,'));
     assert.throws(() => render(conflicting), /Different authored harmonies/);
 });
+test('hidden melody chords do not consume the visible lower staff chord label', () => {
+    const source = fixture.replace('V:lead name=', 'V:lead pos=\"gch hidden\" name=')
+        .replace('[V:low] C,', '[V:low] \"C/G\" \"^Rhythm annotation\" C,');
+    const both = render(planFor({}, source));
+    assert.equal((both.svg.match(/>C\/G</g) ?? []).length, 1);
+    assert.equal(both.models[0].find(voice => voice.id === 'low').sym.a_gch.find(chord => chord.type === 'g').pos, context.abc2svg.C.SL_ABOVE);
+    for (const id of ['lead', 'low']) {
+        const plan = planFor({ display: { selectedVoiceIds: [id] } }, source);
+        assert.match(render(plan).svg, />C\/G</);
+        let authored = plan.audio.tunes[0][1].find(voice => voice.id === 'lead').sym;
+        while (authored && !authored.a_gch?.some(chord => chord.type === 'g')) authored = authored.next;
+        assert.equal(authored.a_gch.find(chord => chord.type === 'g').pos, context.abc2svg.C.SL_HIDDEN);
+    }
+    const mixed = render(planFor({ notation: { instrumentKey: 'C', voices: { lead: { instrumentKey: 'Bb' } } } }, source));
+    assert.match(mixed.svg, />D\/A</);
+    assert.match(mixed.svg, />C\/G</);
+    assert.match(mixed.svg, /Rhythm annotation/);
+    const hidden = render(planFor({ display: { chords: false } }, source));
+    assert.doesNotMatch(hidden.svg, />C\/G</);
+    assert.match(hidden.svg, /Rhythm annotation/);
+});
+test('chord placement preserves visible below-staff preferences', () => {
+    const source = fixture.replace('V:lead name=', 'V:lead pos=\"gch hidden\" name=')
+        .replace('V:low name=', 'V:low pos=\"gch below\" name=');
+    const rendered = render(planFor({}, source));
+    assert.match(rendered.svg, />C\/G</);
+    assert.equal(rendered.models[0].find(voice => voice.id === 'low').sym.a_gch.find(chord => chord.type === 'g').pos, context.abc2svg.C.SL_BELOW);
+});
 test('display chord checkbox hides chord labels without changing canonical harmony or audio', () => {
     const plan = planFor({ display: { selectedVoiceIds: ['low'], chords: false } }, '%%MIDI gchordon\n' + fixture);
     const rendered = render(plan);
@@ -167,8 +195,100 @@ test('grace-note mapping preserves distinct same-time occurrences after fitting 
 });
 test('reject unsupported source transforms and complex layout explicitly', () => {
     assert.throws(() => planFor({ notation: { instrumentKey: 'Bb' } }, fixture.replace('V:lead name=', 'V:lead transpose=-2 name=')), /source pitch basis/);
-    assert.throws(() => planFor({}, fixture.replace('K:C', '%%score [lead low]\nK:C')), /Grouped or changing/);
-    assert.throws(() => planFor({}, 'X:1\nT:Overlay\nM:2/4\nL:1/4\nK:C\nC D & E F |]\n'), /Voice overlays/);
+    for (const layout of ['(lead low)', 'lead | low', '{ [lead low] }']) {
+        assert.throws(() => planFor({}, fixture.replace('K:C', `%%score ${layout}\nK:C`)), /not yet supported/);
+    }
+    assert.throws(() => planFor({}, fixture.replace('K:C', '%%score {lead low]\nK:C')), /Invalid staff grouping/);
+    assert.throws(() => planFor({}, fixture.replace('K:C', '%%score lead low\n%%score low\nK:C')), /Changing staff layouts/);
+    assert.throws(() => planFor({}, fixture.replace('K:C', 'K:C\n%%score lead low')), /after the initial K:/);
+});
+test('overlay branches follow parent voice playback and map back to canonical symbols', () => {
+    const source = 'X:1\nT:Overlay fixture\nM:2/4\nL:1/4\n%%score {lead low}\nV:lead\nV:low clef=bass\nK:C\n[V:lead] C D | E F |]\n[V:low] C, D, & E, F, & G, A, | G, A, & C E & G B |]\n';
+    const baselinePlan = planFor({}, source);
+    assert.throws(() => sourceModel('X:1\nT:Invalid overlay\nM:2/4\nL:1/4\nK:C\nC D & E & F G |]\n'), /Wrong duration in voice overlay/);
+    assert.deepEqual(baselinePlan.inventories[0].voices.map(voice => voice.id), ['lead', 'low']);
+    const baseline = scheduled(baselinePlan);
+    assert.ok(baseline.some(event => event.id === 'lowo'));
+    assert.ok(baseline.some(event => event.id === 'lowoo'));
+    for (const selected of [[], ['lead'], ['low'], ['lead', 'low']]) {
+        const plan = planFor({ playback: { selectedVoiceIds: selected } }, source);
+        const expected = baseline.filter(event => selected.includes(event.id === 'lead' ? 'lead' : 'low'));
+        assert.deepEqual(scheduled(plan), expected);
+    }
+    for (const display of [['lead'], ['low'], ['lead', 'low']]) {
+        const plan = planFor({ display: { selectedVoiceIds: display }, notation: { voices: { low: { instrumentKey: 'Bb' } } }, transposition: { semitones: 2 } }, source);
+        const rendered = render(plan);
+        assert.ok(rendered.svg.includes('<svg'));
+        for (const voice of rendered.models[0]) {
+            if (!display.includes(voice.id === 'lead' ? 'lead' : 'low')) continue;
+            assert.equal(voice.time, plan.audio.tunes[0][1].find(canonical => canonical.id === voice.id).time);
+            for (let symbol = voice.sym; symbol; symbol = symbol.next) {
+                if (symbol.type !== context.abc2svg.C.NOTE) continue;
+                const canonical = plan.symbolFor(symbol, 0);
+                assert.ok(canonical, voice.id);
+                assert.equal(canonical.p_v.id, voice.id);
+                assert.equal(canonical.time, symbol.time);
+            }
+        }
+        if (display.includes('low')) {
+            const low = rendered.models[0].find(voice => voice.id === 'low');
+            for (let overlay = low.voice_down; overlay; overlay = overlay.voice_down) assert.equal(overlay.tr_sco, low.tr_sco);
+        }
+        assert.deepEqual(scheduled(plan), baseline.map(event => ({ ...event, midi: event.midi + 2 })));
+    }
+});
+test('chords authored only in an overlay can be projected and muted with its parent', () => {
+    const source = '%%MIDI gchordon\nX:1\nT:Overlay harmony fixture\nM:2/4\nL:1/4\nV:lead\nV:low\nK:C\n[V:lead] C D | E F |]\n[V:low] C, D, & \"C/G\" E, F, | G, A, & \"G7\" B, C |]\n';
+    const plan = planFor({ display: { selectedVoiceIds: ['lead'] }, playback: { selectedVoiceIds: ['lead'] } }, source);
+    assert.match(render(plan).svg, />C\/G</);
+    const events = scheduled(plan, false);
+    assert.ok(events.length);
+    assert.ok(events.every(event => event.id === 'lead'));
+});
+test('static braces and brackets preserve grouping and collapse for a single selected staff', () => {
+    for (const [command, open, close] of [['score', '{', '}'], ['score', '[', ']'], ['staves', '{', '}'], ['staves', '[', ']']]) {
+        const source = fixture.replace('K:C', `%%${command} ${open} low lead ${close}\nK:C`);
+        const both = planFor({}, source);
+        assert.ok(both.content.includes(`%%${command} ${open} low lead ${close}\n`));
+        assert.ok(render(both).svg.includes('<svg'));
+        for (const id of ['lead', 'low']) {
+            const plan = planFor({ display: { selectedVoiceIds: [id] }, playback: { selectedVoiceIds: [id] } }, source);
+            assert.ok(plan.content.includes(`%%${command} ${id}\n`));
+            const rendered = render(plan);
+            assert.ok(rendered.svg.includes('<svg'));
+            assert.equal(rendered.models[0].find(voice => voice.id === id).key.k_sf, 0);
+            assert.deepEqual(inventories(plan.audio)[0].voices.map(voice => voice.id), ['lead', 'low']);
+        }
+        const mixed = planFor({ notation: { instrumentKey: 'C', voices: { lead: { instrumentKey: 'Bb' } } }, transposition: { semitones: 2 } }, source);
+        const rendered = render(mixed);
+        assert.match(rendered.svg, />E\/B</);
+        assert.match(rendered.svg, />D\/A</);
+        assert.equal(rendered.models[0].find(voice => voice.id === 'lead').key.k_sf, 4);
+        assert.equal(rendered.models[0].find(voice => voice.id === 'low').key.k_sf, 2);
+    }
+});
+test('inherited layout and per-tune layouts are projected independently', () => {
+    const source = `%%score {lead low}\n${fixture}\n${fixture.replace('X:1', 'X:2').replace('K:C', '%%score [low lead]\nK:C')}`;
+    const plan = planFor({ display: { selectedVoiceIds: ['lead', 'low'] } }, source);
+    assert.ok(plan.content.includes('%%score { lead low }\n'));
+    assert.ok(plan.content.includes('%%score [ low lead ]\n'));
+    assert.equal(render(plan).models.length, 2);
+});
+test('braced melody/rhythm score retains rests, maps and canonical audio under voice filtering', () => {
+    const source = '%%MIDI gchordon\n%%fit2box * *\n%%pagescale 1\nX:1\nT:Grouped rhythm fixture\nM:2/4\nL:1/4\n%%score { melody rhythm } % separate staves\nV:melody clef=treble name=\"Melody\" pos=\"gch hidden\"\nV:rhythm clef=bass name=\"Rhythm\" staffnonote=2\n%%map rhythm D, heads=x\nK:Dm\n[V:melody] \"Dm\" D E | \"A7\" F G | \"Dm\" A B | \"Gm\" c d |]\n[V:rhythm] [I:voicemap rhythm] \"Dm\" D, z | [I:voicemap] \"A7\" x2 | \"Dm\" Z | \"Gm\" Z |]\n';
+    const baseline = scheduled(planFor({}, source));
+    for (const display of [['melody', 'rhythm'], ['melody'], ['rhythm']]) {
+        for (const semitones of [0, 2]) {
+            const choices = {
+                display: { selectedVoiceIds: display },
+                notation: { instrumentKey: 'C', voices: { melody: { instrumentKey: 'Bb' } } },
+                transposition: { semitones }
+            };
+            const plan = planFor(choices, source);
+            assert.equal(render(plan).musicSystems, 1);
+            assert.deepEqual(scheduled(plan), baseline.map(event => ({ ...event, midi: event.midi + semitones })));
+        }
+    }
 });
 
 function scheduled(plan, chords = true) {

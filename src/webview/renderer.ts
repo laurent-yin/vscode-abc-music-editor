@@ -6,7 +6,7 @@ export interface Chord { type: string; text: string; otext?: string; [key: strin
 export interface MusicSymbol {
     type: number; time: number; dur?: number; istart?: number; iend?: number;
     next?: MusicSymbol; ts_next?: MusicSymbol; extra?: MusicSymbol;
-    p_v: MusicVoice; notes?: MusicNote[]; a_gch?: Chord[];
+    p_v: MusicVoice; notes?: MusicNote[]; a_gch?: Chord[]; pos?: { gch?: number };
 }
 export interface MusicVoice {
     id: string; nm?: string; snm?: string; sym?: MusicSymbol;
@@ -24,7 +24,7 @@ export interface Model {
     tunes: Tune[];
     gch_tr1(text: string, interval: number): string;
 }
-declare const abc2svg: { Abc: new (user: ModelUser) => Model; C: { NOTE: number; GRACE: number } };
+declare const abc2svg: { Abc: new (user: ModelUser) => Model; C: { NOTE: number; GRACE: number; SL_ABOVE: number; SL_HIDDEN: number } };
 
 export interface Inventory { title: string; voices: VoiceDescriptor[]; key: string }
 export interface Selections { display: FilterResult; playback: FilterResult }
@@ -57,8 +57,17 @@ function descriptor(voice: MusicVoice): VoiceDescriptor {
     return { id: voice.id, name: voice.nm?.replace(/\\n/g, ' '), shortName: voice.snm };
 }
 function sourceVoices(tune: Tune): MusicVoice[] {
-    const overlays = new Set(tune[1].map(voice => voice.voice_down).filter(Boolean));
-    return tune[1].filter(voice => !overlays.has(voice) && voice.id !== '_chord' && voice.id !== '_drum');
+    const owners = voiceOwners(tune[1]);
+    return tune[1].filter(voice => owners.get(voice) === voice && voice.id !== '_chord' && voice.id !== '_drum');
+}
+function voiceOwners(voices: MusicVoice[]): Map<MusicVoice, MusicVoice> {
+    const overlays = new Set(voices.map(voice => voice.voice_down).filter(Boolean));
+    const owners = new Map<MusicVoice, MusicVoice>();
+    for (const root of voices) {
+        if (overlays.has(root)) continue;
+        for (let voice: MusicVoice | undefined = root; voice; voice = voice.voice_down) owners.set(voice, root);
+    }
+    return owners;
 }
 const keys = ['Cb', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#'];
 function keyLabel(tune: Tune): string {
@@ -90,20 +99,62 @@ function instrumentInterval(choices: EffectiveChoices, id: string): string | und
     const targets = { C: 'c', Db: 'b', D: '_b', Eb: 'a', E: '_a', F: 'g', Gb: '^f', G: 'f', Ab: 'e', A: '_e', Bb: 'd', B: '_d' };
     return 'c' + octave(targets[notation.instrumentKey ?? 'C'], notation.octaveShift ?? 0);
 }
+function staffLayout(directive: string | undefined, selected: string[], available: string[]): string {
+    if (!directive) return `%%score ${selected.join(' ')}`;
+    const match = directive.match(/(?:%%|I:)(score|staves)\s+(.*)/);
+    if (!match) throw new Error('A staff layout is missing its voice list.');
+    const [, command, parameter] = match;
+    const layout = parameter.split('%')[0].trim();
+    if (/[()|*+]/.test(layout)) throw new Error('Shared-staff, floating-voice and barline layout operators are not yet supported by personal voice projection.');
+    const result: string[] = [];
+    const seen = new Set<string>();
+    let group: { open: string; voices: string[] } | undefined;
+    for (const token of layout.match(/[{}[\]]|[^\s{}[\]]+/g) ?? []) {
+        if (token === '{' || token === '[') {
+            if (group) throw new Error('Nested staff groups are not yet supported by personal voice projection.');
+            group = { open: token, voices: [] };
+        } else if (token === '}' || token === ']') {
+            if (!group || token !== (group.open === '{' ? '}' : ']') || !group.voices.length) throw new Error('Invalid staff grouping in the source layout.');
+            // Legacy %%staves may turn three/four braced voices into shared staves.
+            if (command === 'staves' && group.open === '{' && group.voices.length > 2) throw new Error('Legacy multi-voice braced %%staves layouts are not yet supported by personal voice projection.');
+            const kept = group.voices.filter(id => selected.includes(id));
+            if (kept.length > 1) result.push(`${group.open} ${kept.join(' ')} ${token}`);
+            else result.push(...kept);
+            group = undefined;
+        } else {
+            if (!available.includes(token) || seen.has(token)) throw new Error(`Unknown or repeated voice "${token}" in the source staff layout.`);
+            seen.add(token);
+            if (group) group.voices.push(token);
+            else if (selected.includes(token)) result.push(token);
+        }
+    }
+    if (group || !seen.size) throw new Error('Invalid staff grouping in the source layout.');
+    // Personal selections can reveal voices omitted by the authored selector.
+    result.push(...selected.filter(id => !seen.has(id)));
+    return `%%${command} ${result.join(' ')}`;
+}
 function projected(content: string, model: Model, selections: Selections[], choices: EffectiveChoices, display: boolean): string {
-    const parts = stripLayouts(content).split(/(?=^X:)/m);
+    const parts = content.split(/(?=^X:)/m);
+    let inheritedLayout: string | undefined;
     let tuneIndex = 0;
     return parts.map(part => {
-        if (!part.startsWith('X:')) return part;
+        const layouts = [...part.matchAll(/^[ \t]*(?:%%|I:)(?:score|staves)\b[^\r\n]*/gm)];
+        if (layouts.length > 1) throw new Error('Changing staff layouts are not yet supported by personal voice projection.');
+        if (!part.startsWith('X:')) {
+            inheritedLayout = layouts[0]?.[0];
+            return stripLayouts(part);
+        }
         const tune = model.tunes[tuneIndex];
         const selection = selections[tuneIndex++];
         if (!tune || !selection) throw new Error('Cannot associate source tune headers with the renderer model.');
         const voices = sourceVoices(tune);
         const headerEnd = part.search(/^K:/m);
         if (headerEnd < 0) throw new Error('A tune is missing its initial K: field.');
+        if (layouts.some(layout => layout.index > headerEnd)) throw new Error('Staff-layout directives after the initial K: are not yet supported by personal voice projection.');
+        const stripped = stripLayouts(part);
         // Imported tunebooks may repeat X:/T:. Preview-local reference numbers
         // identify tunes unambiguously, including after fit2box reparses input.
-        const header = part.slice(0, headerEnd).replace(/^X:[^\r\n]*/, `X:${tuneIndex}`);
+        const header = stripped.slice(0, headerEnd).replace(/^X:[^\r\n]*/, `X:${tuneIndex}`);
         const current = [...header.matchAll(/^V:([^\s]+)/gm)].pop()?.[1] ?? voices[0]?.id;
         const options = voices.map(voice => {
             if (!/^[^\s[\]{}()|%"\\]+$/u.test(voice.id)) throw new Error(`Voice ID "${voice.id}" is not supported by the preview projection.`);
@@ -113,7 +164,8 @@ function projected(content: string, model: Model, selections: Selections[], choi
         });
         const selected = display && selection.display.ids.length ? selection.display.ids : voices.map(voice => voice.id);
         if (!selected.length) throw new Error('This tune has no source voices.');
-        return `${header}${options.join('\n')}\nV:${current}\n%%score ${selected.join(' ')}\n${part.slice(headerEnd)}`;
+        const layout = staffLayout(layouts[0]?.[0] ?? inheritedLayout, selected, voices.map(voice => voice.id));
+        return `${header}${options.join('\n')}\nV:${current}\n${display ? layout : `%%score ${selected.join(' ')}`}\n${stripped.slice(headerEnd)}`;
     }).join('');
 }
 function symbols(voice: MusicVoice): MusicSymbol[] {
@@ -163,22 +215,15 @@ export async function filterSelections(choices: EffectiveChoices, voiceLists: Vo
     } finally { worker?.terminate(); URL.revokeObjectURL(workerUrl); }
 }
 export function createPlan(content: string, choices: EffectiveChoices, original: Model, selections: Selections[]): PreviewPlan {
-    if (original.tunes.some(tune => tune[1].some(voice => voice.voice_down))) {
-        throw new Error('Voice overlays are not yet supported by personal voice projection.');
-    }
     const notationRequested = choices.notation.instrumentKey !== undefined || choices.notation.octaveShift !== undefined || Object.keys(choices.notation.voices ?? {}).length > 0;
     if ((notationRequested || choices.transposition.semitones) && /(?:\b(?:score|sound|shift|transpose|octave)\s*=|^[ \t]*(?:%%|I:)transpose\b)/m.test(content.replace(/^[ \t]*%(?!%)[^\n]*$/gm, ''))) {
         throw new Error('This source already declares pitch/register transforms. Personal transposition requires a confirmed source pitch basis; remove personal notation/transposition settings or use a concert-pitch source.');
-    }
-    const layouts = content.match(/^[ \t]*(?:%%|I:)(?:score|staves)\b[^\r\n]*/gm) ?? [];
-    if (layouts.some(line => /[()[\]{}|]/.test(line)) || layouts.length > original.tunes.length) {
-        throw new Error('Grouped or changing staff layouts are not yet supported by personal voice projection. The source has not been changed.');
     }
     const audio = sourceModel(projected(content, original, selections, choices, false));
     const inventory = inventories(audio);
     const lookup = audio.tunes.map(tune => {
         const map = new Map<string, MusicSymbol[]>();
-        for (const voice of sourceVoices(tune)) for (const symbol of symbols(voice)) {
+        for (const voice of tune[1]) for (const symbol of symbols(voice)) {
             const key = symbolKey(symbol);
             const bucket = map.get(key) ?? [];
             bucket.push(symbol);
@@ -193,6 +238,8 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
         content: projected(content, original, selections, choices, true), audio, inventories: inventory, selections, notices,
         symbolFor(symbol) { return displaySymbols.get(symbol); },
         prepareDisplay(model, voices, index) {
+            const owners = voiceOwners(voices);
+            const selectedVoices = voices.filter(voice => selections[index].display.ids.includes(owners.get(voice)?.id ?? voice.id));
             const occurrences = new Map<string, number>();
             for (const voice of voices) for (const symbol of symbols(voice)) {
                 const key = symbolKey(symbol);
@@ -210,7 +257,7 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
                 return;
             }
             const harmony = new Map<number, { voice: MusicVoice; chords: Chord[] }>();
-            for (const voice of sourceVoices(audio.tunes[index])) for (const symbol of symbols(voice)) {
+            for (const voice of audio.tunes[index][1]) for (const symbol of symbols(voice)) {
                 const chords = symbol.a_gch?.filter(chord => chord.type === 'g');
                 if (!chords?.length) continue;
                 const existing = harmony.get(symbol.time);
@@ -219,25 +266,30 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
                 }
                 if (!existing) harmony.set(symbol.time, { voice, chords });
             }
-            const shown = new Set<string>();
-            for (const voice of voices) {
-                if (!selections[index].display.ids.includes(voice.id)) continue;
+            const targets = new Map<string, { voice: MusicVoice; symbol: MusicSymbol; position: number }>();
+            for (const voice of selectedVoices) {
                 for (const symbol of symbols(voice)) {
-                    const source = harmony.get(symbol.time);
-                    if (!source || (symbol.type !== abc2svg.C.NOTE && !symbol.dur)) continue;
+                    symbol.a_gch = symbol.a_gch?.filter(chord => chord.type !== 'g');
+                    if (!harmony.has(symbol.time) || (symbol.type !== abc2svg.C.NOTE && !symbol.dur)) continue;
                     const context = `${symbol.time}:${voice.tr_sco ?? 0}`;
-                    const other = symbol.a_gch?.filter(chord => chord.type !== 'g') ?? [];
-                    symbol.a_gch = shown.has(context) ? other : [...other, ...source.chords.map(chord => ({
-                        ...chord, text: model.gch_tr1(chord.text, (voice.tr_sco ?? 0) - (source.voice.tr_sco ?? 0))
-                    }))];
-                    shown.add(context);
+                    const position = symbol.pos?.gch || abc2svg.C.SL_ABOVE;
+                    const existing = targets.get(context);
+                    if (!existing || (existing.position === abc2svg.C.SL_HIDDEN && position !== abc2svg.C.SL_HIDDEN)) {
+                        targets.set(context, { voice, symbol, position });
+                    }
                 }
             }
-            const contexts = new Set(voices.filter(voice => selections[index].display.ids.includes(voice.id)).map(voice => voice.tr_sco ?? 0));
-            for (const time of harmony.keys()) for (const context of contexts) {
-                if (!shown.has(`${time}:${context}`)) {
+            const contexts = new Set(selectedVoices.map(voice => voice.tr_sco ?? 0));
+            for (const [time, source] of harmony) for (const context of contexts) {
+                const target = targets.get(`${time}:${context}`);
+                if (!target) {
                     throw new Error(`Cannot place a hidden staff's chord at tick ${time} in the selected notation context. Choose a display that includes its authored staff.`);
                 }
+                target.symbol.a_gch = [...target.symbol.a_gch ?? [], ...source.chords.map(chord => ({
+                    ...chord,
+                    pos: target.position === abc2svg.C.SL_HIDDEN ? abc2svg.C.SL_ABOVE : target.position,
+                    text: model.gch_tr1(chord.text, (target.voice.tr_sco ?? 0) - (source.voice.tr_sco ?? 0))
+                }))];
             }
         }
     };
@@ -245,9 +297,10 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
 /** Call after ToAudio.add, which may append generated accompaniment voices. */
 export function maskAudio(tunes: Tune[], selections: Selections[], chords?: boolean): void {
     tunes.forEach((tune, index) => {
+        const owners = voiceOwners(tune[1]);
         for (const voice of tune[1]) {
             const enabled = voice.id === '_chord' ? chords !== false
-                : voice.id === '_drum' || selections[index].playback.ids.includes(voice.id);
+                : voice.id === '_drum' || selections[index].playback.ids.includes(owners.get(voice)?.id ?? voice.id);
             if (enabled) continue;
             // Keep every timing/control/bar symbol. Both MIDI and WebAudio
             // schedulers honor note.noplay, including grace-note events.
