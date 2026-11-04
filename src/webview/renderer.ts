@@ -4,7 +4,8 @@ import type { EffectiveChoices, FilterResult, VoiceDescriptor } from 'abctools/p
 export interface MusicNote { midi?: number; noplay?: boolean | number; pit: number; acc?: number }
 export interface Chord { type: string; text: string; otext?: string; [key: string]: unknown }
 export interface MusicSymbol {
-    type: number; time: number; dur?: number; istart?: number; iend?: number;
+    type: number; v: number; time: number; dur?: number; istart?: number; iend?: number;
+    tempo?: number; tempo_str1?: string; tempo_str2?: string;
     next?: MusicSymbol; ts_next?: MusicSymbol; extra?: MusicSymbol;
     p_v: MusicVoice; notes?: MusicNote[]; a_gch?: Chord[]; pos?: { gch?: number };
 }
@@ -24,11 +25,17 @@ export interface Model {
     tunes: Tune[];
     gch_tr1(text: string, interval: number): string;
 }
-declare const abc2svg: { Abc: new (user: ModelUser) => Model; C: { NOTE: number; GRACE: number; SL_ABOVE: number; SL_HIDDEN: number } };
+declare const abc2svg: {
+    Abc: new (user: ModelUser) => Model;
+    C: { NOTE: number; GRACE: number; TEMPO: number; SL_ABOVE: number; SL_HIDDEN: number };
+    tmp_tb: Record<string, number>;
+    fit2box?: { on: number; otosvg?: Model['tosvg'] | null };
+};
 
-export interface Inventory { title: string; voices: VoiceDescriptor[]; key: string }
+export interface Inventory { title: string; voices: VoiceDescriptor[]; key: string; tempo: number }
 export interface Selections { display: FilterResult; playback: FilterResult }
 export interface PreviewPlan {
+    fallback?: boolean;
     content: string;
     audio: Model;
     inventories: Inventory[];
@@ -37,9 +44,35 @@ export interface PreviewPlan {
     symbolFor(displaySymbol: MusicSymbol, tuneIndex: number): MusicSymbol | undefined;
     prepareDisplay(model: Model, voices: MusicVoice[], tuneIndex: number): void;
 }
+export function originalPlan(content: string, audio: Model): PreviewPlan {
+    const inventory = inventories(audio);
+    return {
+        fallback: true, content, audio, inventories: inventory,
+        selections: inventory.map(tune => ({
+            display: { ids: tune.voices.map(voice => voice.id), notices: [] },
+            playback: { ids: tune.voices.map(voice => voice.id), notices: [] }
+        })),
+        notices: ['Recovery mode: original authored layout and playback; personal display, playback, notation and transposition preferences are not applied. Saved preferences are unchanged.'],
+        symbolFor(symbol) { return symbol; },
+        prepareDisplay() {}
+    };
+}
+export function renderModel(model: Pick<Model, 'tosvg'>, id: string, content: string): void {
+    try {
+        model.tosvg(id, content);
+    } finally {
+        // fit2box leaves global state active if a rendering callback throws.
+        const fitting = abc2svg.fit2box;
+        if (fitting) {
+            if (fitting.otosvg) model.tosvg = fitting.otosvg;
+            fitting.otosvg = null;
+            fitting.on = 0;
+        }
+    }
+}
 function parse(content: string): Model {
     const model = new abc2svg.Abc({ errmsg(message) { throw new Error(message); } });
-    model.tosvg('abc', content);
+    renderModel(model, 'abc', content);
     // abc2svg exposes tunes on a prototype replaced by each constructor.
     // Own the array before constructing the independent display instance.
     model.tunes = Array.from(model.tunes);
@@ -58,7 +91,7 @@ function descriptor(voice: MusicVoice): VoiceDescriptor {
 }
 function sourceVoices(tune: Tune): MusicVoice[] {
     const owners = voiceOwners(tune[1]);
-    return tune[1].filter(voice => owners.get(voice) === voice && voice.id !== '_chord' && voice.id !== '_drum');
+    return tune[1].filter(voice => owners.get(voice) === voice && !['_chord', '_drum', '_beats'].includes(voice.id));
 }
 function voiceOwners(voices: MusicVoice[]): Map<MusicVoice, MusicVoice> {
     const overlays = new Set(voices.map(voice => voice.voice_down).filter(Boolean));
@@ -83,7 +116,16 @@ export function compactKeyLabel(key: string): string {
     return key.replace(/ major$/, '').replace(/ minor$/, 'm');
 }
 export function inventories(model: Model): Inventory[] {
-    return Array.from(model.tunes, tune => ({ title: tune[2].T ?? `Tune ${tune[2].X}`, voices: Array.from(sourceVoices(tune), descriptor), key: keyLabel(tune) }));
+    return Array.from(model.tunes, tune => ({ title: tune[2].T ?? `Tune ${tune[2].X}`, voices: Array.from(sourceVoices(tune), descriptor), key: keyLabel(tune), tempo: originalTempo(tune) }));
+}
+export function originalTempo(tune: Tune): number {
+    let tempo = 120;
+    for (let symbol: MusicSymbol | undefined = tune[0]; symbol && !symbol.dur; symbol = symbol.ts_next) {
+        if (symbol.type !== abc2svg.C.TEMPO) continue;
+        const value = symbol.tempo ?? abc2svg.tmp_tb[(symbol.tempo_str1 || symbol.tempo_str2 || '').toLowerCase()];
+        if (value !== undefined) tempo = value;
+    }
+    return tempo;
 }
 function octave(note: string, amount: number): string {
     if (amount < 0) return note.replace(/[a-g]/, letter => letter.toUpperCase()) + ','.repeat(-amount - 1);
@@ -214,23 +256,30 @@ export async function filterSelections(choices: EffectiveChoices, voiceLists: Vo
         });
     } finally { worker?.terminate(); URL.revokeObjectURL(workerUrl); }
 }
-export function createPlan(content: string, choices: EffectiveChoices, original: Model, selections: Selections[]): PreviewPlan {
+const canonicalLookups = new WeakMap<Model, { lookup: Map<string, MusicSymbol[]>[]; times: WeakMap<MusicSymbol, number> }>();
+export function createPlan(content: string, choices: EffectiveChoices, original: Model, selections: Selections[], retainedAudio?: Model): PreviewPlan {
     const notationRequested = choices.notation.instrumentKey !== undefined || choices.notation.octaveShift !== undefined || Object.keys(choices.notation.voices ?? {}).length > 0;
     if ((notationRequested || choices.transposition.semitones) && /(?:\b(?:score|sound|shift|transpose|octave)\s*=|^[ \t]*(?:%%|I:)transpose\b)/m.test(content.replace(/^[ \t]*%(?!%)[^\n]*$/gm, ''))) {
         throw new Error('This source already declares pitch/register transforms. Personal transposition requires a confirmed source pitch basis; remove personal notation/transposition settings or use a concert-pitch source.');
     }
-    const audio = sourceModel(projected(content, original, selections, choices, false));
+    const audio = retainedAudio ?? sourceModel(projected(content, original, selections, choices, false));
     const inventory = inventories(audio);
-    const lookup = audio.tunes.map(tune => {
+    // ToAudio moves grace/beat symbols in place. Keep their engraving-time keys
+    // so redraws still map to the very same running playback objects.
+    const cached = canonicalLookups.get(audio);
+    const times = cached?.times ?? new WeakMap<MusicSymbol, number>();
+    const lookup = cached?.lookup ?? audio.tunes.map(tune => {
         const map = new Map<string, MusicSymbol[]>();
         for (const voice of tune[1]) for (const symbol of symbols(voice)) {
             const key = symbolKey(symbol);
             const bucket = map.get(key) ?? [];
             bucket.push(symbol);
             map.set(key, bucket);
+            times.set(symbol, symbol.time);
         }
         return map;
     });
+    canonicalLookups.set(audio, { lookup, times });
     const notices = selections.flatMap((selection, i) => [...selection.display.notices, ...selection.playback.notices].map(notice => `${inventory[i].title}: ${notice}`));
     const displaySymbols = new WeakMap<MusicSymbol, MusicSymbol>();
     notices.push('Source navigation and source-position diagnostics are disabled: configuration, personal projections and fit2box do not yet provide a composed source map.');
@@ -258,13 +307,15 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
             }
             const harmony = new Map<number, { voice: MusicVoice; chords: Chord[] }>();
             for (const voice of audio.tunes[index][1]) for (const symbol of symbols(voice)) {
+                const time = times.get(symbol);
+                if (time === undefined) continue;
                 const chords = symbol.a_gch?.filter(chord => chord.type === 'g');
                 if (!chords?.length) continue;
-                const existing = harmony.get(symbol.time);
+                const existing = harmony.get(time);
                 if (existing && JSON.stringify(existing.chords.map(chord => chord.text)) !== JSON.stringify(chords.map(chord => chord.text))) {
-                    throw new Error(`Different authored harmonies occur at tick ${symbol.time}. Personal chord projection cannot safely merge them.`);
+                    throw new Error(`Different authored harmonies occur at tick ${time}. Personal chord projection cannot safely merge them.`);
                 }
-                if (!existing) harmony.set(symbol.time, { voice, chords });
+                if (!existing) harmony.set(time, { voice, chords });
             }
             const targets = new Map<string, { voice: MusicVoice; symbol: MusicSymbol; position: number }>();
             for (const voice of selectedVoices) {
@@ -295,16 +346,22 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
     };
 }
 /** Call after ToAudio.add, which may append generated accompaniment voices. */
-export function maskAudio(tunes: Tune[], selections: Selections[], chords?: boolean): void {
+export function playbackVoices(tunes: Tune[], selections: Selections[], chords?: boolean): Map<MusicVoice, boolean> {
+    const enabled = new Map<MusicVoice, boolean>();
     tunes.forEach((tune, index) => {
         const owners = voiceOwners(tune[1]);
         for (const voice of tune[1]) {
-            const enabled = voice.id === '_chord' ? chords !== false
-                : voice.id === '_drum' || selections[index].playback.ids.includes(owners.get(voice)?.id ?? voice.id);
-            if (enabled) continue;
-            // Keep every timing/control/bar symbol. Both MIDI and WebAudio
-            // schedulers honor note.noplay, including grace-note events.
-            for (const symbol of symbols(voice)) for (const note of symbol.notes ?? []) note.noplay = true;
+            enabled.set(voice, voice.id === '_chord' ? chords !== false
+                : voice.id === '_drum' || voice.id === '_beats' || selections[index].playback.ids.includes(owners.get(voice)?.id ?? voice.id));
         }
     });
+    return enabled;
+}
+export function maskAudio(tunes: Tune[], selections: Selections[], chords?: boolean): void {
+    for (const [voice, enabled] of playbackVoices(tunes, selections, chords)) {
+        if (enabled) continue;
+        // Keep every timing/control/bar symbol. Both MIDI and WebAudio
+        // schedulers honor note.noplay, including grace-note events.
+        for (const symbol of symbols(voice)) for (const note of symbol.notes ?? []) note.noplay = true;
+    }
 }

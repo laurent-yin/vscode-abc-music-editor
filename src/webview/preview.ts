@@ -1,5 +1,6 @@
 import { PersonalControls } from './preferences.js';
-import { sourceModel, inventories, filterSelections, createPlan, maskAudio } from './renderer.js';
+import { sourceModel, inventories, filterSelections, createPlan, originalPlan, playbackVoices, renderModel } from './renderer.js';
+import { canRetainPlayback, installVoiceMixer, VoiceMixer } from './playback.js';
 import type { PreviewPlan, MusicVoice, MusicSymbol, Model } from './renderer.js';
 import type { RenderMessage } from '../shared/protocol.js';
 import { refreshFileVoices } from 'abctools/preferences';
@@ -42,6 +43,7 @@ interface ABC2SVG {
     
     /** Constants used by abc2svg */
     C: any;
+    play_next: Parameters<typeof installVoiceMixer>[0]['play_next'];
 }
 
 interface AbcInstance {
@@ -119,6 +121,7 @@ interface User {
 interface PlayOptions {
     onend: (repv?: number) => void;
     onnote: (note: any) => void;
+    voiceMixer: VoiceMixer;
 }
 
 interface AbcPlay {
@@ -126,6 +129,7 @@ interface AbcPlay {
     stop: () => void;
     add: (start: any, voice: any, options?: any) => void;
     set_sfu: (url?: string) => string | void;
+    set_speed: (speed: number) => void;
 }
 
 interface PlayState {
@@ -156,23 +160,31 @@ declare const LZString: any;
 
 // Initialize variables
 const vscode = acquireVsCodeApi();
-const personalControls = new PersonalControls(message => {
-    if (message && typeof message === 'object' && 'command' in message && message.command === 'preferences') stopForChange();
-    vscode.postMessage(message);
-});
+const personalControls = new PersonalControls(
+    message => vscode.postMessage(message),
+    (tempo, original) => play.abcplay?.set_speed((tempo ?? original) / original)
+);
 let renderGeneration = 0;
 let currentMessage: RenderMessage | undefined;
 let previewPlan: PreviewPlan | undefined;
 let playbackModel: Model | undefined;
 let displayTuneIndex = 0;
 let playerGeneration = 0;
+let voiceMixer: VoiceMixer | undefined;
 
 function createPlayer(): AbcPlay {
     const generation = ++playerGeneration;
-    return AbcPlay({
+    voiceMixer?.clear();
+    voiceMixer = new VoiceMixer();
+    const player = AbcPlay({
+        voiceMixer,
         onend(repv) { if (generation === playerGeneration) endplay(repv); },
         onnote(note) { if (generation === playerGeneration) playNoteCallback(note); }
     });
+    const tuneIndex = Number((document.getElementById('playback-tune') as HTMLSelectElement | null)?.value ?? 0);
+    const original = previewPlan?.inventories[tuneIndex]?.tempo;
+    if (original) player.set_speed((currentMessage?.preferences.tempo ?? original) / original);
+    return player;
 }
 let abc: AbcInstance;
 let currentAbcContent = ''; // Store the current ABC text to detect changes
@@ -186,6 +198,19 @@ let tunes: any[];
 let syms: any[] = [];   // Music symbol at source index
 const selx: [number, number] = [0, 0]; // (start, end) of the selection
 const selx_sav: number[] = []; // (saved while playing/printing)
+
+function indexPlaybackSymbols(model: Model): void {
+    syms = [];
+    for (const tune of model.tunes) for (const voice of tune[1]) {
+        for (let symbol = voice.sym; symbol; symbol = symbol.next) {
+            if (symbol.istart !== undefined) syms[symbol.istart] = symbol;
+            // Selection of a grace note plays its complete timed grace group.
+            for (let grace = symbol.extra; grace; grace = grace.next) {
+                if (grace.istart !== undefined) syms[grace.istart] = symbol;
+            }
+        }
+    }
+}
 
 // Disable the default context menu on right-click
 document.addEventListener('contextmenu', (event) => {
@@ -219,6 +244,7 @@ abc2svg.loadjs = function(fn: string, relay?: (event?: any) => void, onerror?: (
 // Load snd-1.js for midi playback
 abc2svg.loadjs("snd-1.js", function() {
     console.log("snd-1.js loaded successfully");
+    installVoiceMixer(abc2svg);
     play.abcplay = createPlayer();
     isMidiReady = true;
 });
@@ -230,7 +256,6 @@ window.addEventListener('message', event => {
     if (event.data.command === 'render') void renderPersonalPreview(event.data);
     else if (event.data.command === 'preferenceError') {
         renderGeneration++;
-        stopForChange();
         personalControls.error(event.data.message);
     }
 });
@@ -240,6 +265,7 @@ function stopForChange(): void {
     play.stopRequested = true;
     play.pauseRequested = false;
     play.abcplay?.stop();
+    voiceMixer?.clear();
     play.playing = false;
     play.noteToResumeTo = 0;
     play.si = play.ei = null;
@@ -248,12 +274,20 @@ function stopForChange(): void {
 
 async function renderPersonalPreview(message: RenderMessage): Promise<void> {
     const generation = ++renderGeneration;
-    currentMessage = message;
-    stopForChange();
-    playbackModel = undefined;
-    previewPlan = undefined;
+    const retainedAudio = canRetainPlayback(currentMessage, message, previewPlan) ? playbackModel : undefined;
+    const redraw = !retainedAudio
+        || JSON.stringify(currentMessage?.preferences.display) !== JSON.stringify(message.preferences.display)
+        || JSON.stringify(currentMessage?.preferences.notation) !== JSON.stringify(message.preferences.notation);
+    if (!retainedAudio) {
+        stopForChange();
+        playbackModel = undefined;
+        previewPlan = undefined;
+    }
     const div = document.getElementById('sheet')!;
-    div.replaceChildren();
+    if (redraw) div.replaceChildren();
+    const status = document.getElementById('preview-status')!;
+    status.hidden = true;
+    status.replaceChildren();
     try {
         await new Promise<void>((resolve, reject) => {
             if (abc2svg.modules.load(message.content, resolve, error => reject(new Error(String(error))))) resolve();
@@ -289,36 +323,64 @@ async function renderPersonalPreview(message: RenderMessage): Promise<void> {
             return;
         }
         personalControls.render(message, { inventories: inventory, selections, notices: [] });
-        const plan = createPlan(message.content, message.preferences, original, selections);
+        const plan = createPlan(message.content, message.preferences, original, selections, retainedAudio);
         previewPlan = plan;
         playbackModel = plan.audio;
-        tunes = [];
-        if (isMidiReady) play.abcplay = createPlayer();
-        syms = [];
-        for (const tune of plan.audio.tunes) for (const voice of tune[1]) {
-            for (let symbol = voice.sym; symbol; symbol = symbol.next) {
-                if (symbol.istart !== undefined) syms[symbol.istart] = symbol;
-                // Selection of a grace note plays its complete timed grace group.
-                for (let grace = symbol.extra; grace; grace = grace.next) {
-                    if (grace.istart !== undefined) syms[grace.istart] = symbol;
-                }
-            }
+        currentMessage = message;
+        if (!retainedAudio) {
+            tunes = [];
+            if (isMidiReady) play.abcplay = createPlayer();
+            indexPlaybackSymbols(plan.audio);
+            selx_sav[0] = selx_sav[1] = 0;
         }
-        selx_sav[0] = selx_sav[1] = 0;
+        if (!plan.fallback) voiceMixer?.update(playbackVoices(plan.audio.tunes, selections, message.preferences.playback.chords));
         currentAbcContent = message.content;
-        renderAbcContent(plan.content);
+        if (redraw) renderAbcContent(plan.content, undefined, !!retainedAudio);
         personalControls.render(message, plan, plan.inventories[0]?.key);
     } catch (error) {
         if (generation === renderGeneration) {
             stopForChange();
             playbackModel = undefined;
-            div.replaceChildren();
-            personalControls.error(String(error));
+            previewPlan = undefined;
+            const reason = error instanceof Error ? error.message : String(error);
+            console.error('Personal preview failed; retrying original sheet:', error);
+            const diagnostics: string[] = [];
+            try {
+                tunes = [];
+                syms = [];
+                if (isMidiReady) play.abcplay = createPlayer();
+                selx_sav[0] = selx_sav[1] = 0;
+                currentAbcContent = message.content;
+                renderAbcContent(message.content, diagnostics);
+                if (!div.querySelector('svg')) throw new Error('The original renderer produced no sheet.');
+                const audio: Model = abc;
+                audio.tunes = Array.from(audio.tunes);
+                const plan = originalPlan(message.content, audio);
+                previewPlan = plan;
+                playbackModel = audio;
+                currentMessage = message;
+                indexPlaybackSymbols(audio);
+                personalControls.render(message, plan, plan.inventories[0]?.key);
+                document.getElementById('display-toggle')!.textContent = 'Display: Original';
+                document.getElementById('playback-toggle')!.textContent = 'Playback: Original';
+                status.textContent = `Showing the original sheet. Personal voice filtering, chord choices, instrument notation and transposition were not applied. Playback uses the original unfiltered music. Saved preferences are unchanged.\nReason: ${reason}\nTry resetting this file's preferences or simplifying the staff layout/personal transforms as suggested by the reason above. If the source renders normally but personal filtering still fails, report this reason and the relevant layout/voice declarations.`;
+                if (diagnostics.length) status.textContent += `\nOriginal renderer diagnostics (the sheet may be incomplete):\n${[...new Set(diagnostics)].join('\n')}`;
+                status.className = 'warning';
+            } catch (fallbackError) {
+                playbackModel = undefined;
+                previewPlan = undefined;
+                div.replaceChildren();
+                console.error('Original sheet recovery failed:', fallbackError);
+                status.className = 'error';
+                status.textContent = `The personal preview and original sheet both failed.\nPersonal preview: ${reason}\nOriginal renderer: ${String(fallbackError)}\n${[...new Set(diagnostics)].join('\n')}\nCheck the ABC source and configuration; report these errors if the original source should be valid.`;
+                personalControls.error(status.textContent);
+            }
+            status.hidden = false;
         }
     }
 }
 
-function renderAbcContent(abcContent: string): void {
+function renderAbcContent(abcContent: string, recoveryDiagnostics?: string[], preserveSelection = false): void {
         const div = document.getElementById('sheet') as HTMLDivElement;
         div.innerHTML = '';
         abc_images = ''; // Reset accumulated SVG content
@@ -327,6 +389,7 @@ function renderAbcContent(abcContent: string): void {
             // Configure the user object with callbacks that abc2svg will use during rendering
             user = {
                 get_abcmodel(_first, voices, _names, info) {
+                    if (recoveryDiagnostics) return;
                     displayTuneIndex = playbackModel?.tunes.findIndex(tune => tune[2].X === info.X && tune[2].T === info.T) ?? -1;
                     if (displayTuneIndex < 0 || !previewPlan) throw new Error('Cannot associate fitted display with its source tune.');
                     previewPlan.prepareDisplay(abc, voices, displayTuneIndex);
@@ -334,14 +397,17 @@ function renderAbcContent(abcContent: string): void {
                 // img_out is called by abc2svg for each SVG snippet it generates
                 // These snippets are accumulated in abc_images and later inserted into the DOM
                 img_out: (s: string) => {
-                    if (previewPlan?.selections[displayTuneIndex]?.display.ids.length) abc_images += s;
+                    if (recoveryDiagnostics || previewPlan?.selections[displayTuneIndex]?.display.ids.length) abc_images += s;
                 },
                 
                 // Set SVG image size to be responsive
                 imagesize: 'width="100%"',
                 
                 // Forward error messages to VS Code
-                errmsg: (message: string) => { throw new Error(message); },
+                errmsg: (message: string) => {
+                    if (recoveryDiagnostics) recoveryDiagnostics.push(message);
+                    else throw new Error(message);
+                },
                 
                 // anno_stop creates interactive rectangles for each musical element
                 // Output: Generates invisible SVG rectangles that can be used for selection/interaction
@@ -353,7 +419,7 @@ function renderAbcContent(abcContent: string): void {
                     
                     if (["note", "rest", "Zrest"].indexOf(type) == -1)
                         return;
-                    const canonical = previewPlan?.symbolFor(s, displayTuneIndex);
+                    const canonical = recoveryDiagnostics ? s : previewPlan?.symbolFor(s, displayTuneIndex);
                     if (canonical?.istart === undefined) return;
                     start = canonical.istart;
             
@@ -415,7 +481,7 @@ function renderAbcContent(abcContent: string): void {
 
                 // This is the main call that starts the rendering process
                 // It will call user.img_out() multiple times with SVG content
-                abc.tosvg('abc', abcContent);
+                renderModel(abc, 'abc', abcContent);
                 
                 // Update soundfont URL if specified in ABC content via %%soundfont directive
                 const soundfont = abc.cfmt()?.soundfont;
@@ -427,7 +493,8 @@ function renderAbcContent(abcContent: string): void {
                 // Insert all the collected SVG content into the DOM
                 console.log('inserting SVG content into the DOM, length:', abc_images.length);
                 div.innerHTML = abc_images;
-                selectionManager.clear();
+                if (preserveSelection) selectionManager.update();
+                else selectionManager.clear();
                 
                 // Set up selection overlay after rendering
                 setupSelectionOverlay();
@@ -438,7 +505,7 @@ function renderAbcContent(abcContent: string): void {
             }
 
             // Reset selection and symbols before re-render
-            selx[0] = selx[1] = 0;
+            if (!preserveSelection) selx[0] = selx[1] = 0;
             
             // Create a new ABC instance with our user callbacks
             abc = new abc2svg.Abc(user);
@@ -1039,7 +1106,7 @@ function play_tune(what: number): void {
             const elt = tunes[i];
             play.abcplay?.add(elt[0], elt[1], elt[3]);
         }
-        maskAudio(playbackModel.tunes, previewPlan.selections, currentMessage?.preferences.playback.chords);
+        if (!previewPlan.fallback) voiceMixer?.update(playbackVoices(playbackModel.tunes, previewPlan.selections, currentMessage?.preferences.playback.chords));
 
         play.si = play.ei = null;
         play.noteToResumeTo = 0;

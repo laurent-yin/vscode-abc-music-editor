@@ -4,7 +4,7 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { resolvePreferences, validateChoices } from 'abctools/preferences';
+import { resolvePreferences, validateChoices } from '../out/shared/preferences.mjs';
 import { PreferenceStore } from '../out/extension/preferenceStore.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -46,7 +46,7 @@ const server = http.createServer(async (request, response) => {
                 if (update.action === 'reset') delete files['fixture.abc'];
                 else if (update.action === 'file') files['fixture.abc'] = validateChoices(update.choices);
                 else {
-                    const { transposition, ...personal } = validateChoices(update.choices);
+                    const { transposition, tempo, ...personal } = validateChoices(update.choices);
                     value.defaults = personal;
                 }
                 await store.write(value, snapshot.revision);
@@ -80,7 +80,7 @@ const server = http.createServer(async (request, response) => {
         if (!/^\/(?:lib|out)\//.test(url.pathname)) { response.writeHead(404).end(); return; }
         const filename = path.resolve(root, `.${url.pathname}`);
         if (!filename.startsWith(root)) throw new Error('Invalid asset path');
-        response.setHeader('Content-Type', filename.endsWith('.js') ? 'text/javascript' : 'application/octet-stream');
+        response.setHeader('Content-Type', /\.m?js$/.test(filename) ? 'text/javascript' : 'application/octet-stream');
         response.end(await readFile(filename));
     } catch (error) {
         response.writeHead(500, { 'Content-Type': 'text/plain' }).end(String(error));

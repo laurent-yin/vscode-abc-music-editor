@@ -73,15 +73,38 @@ major keys use their tonic name, minor keys use `m`, and other modes retain
 their full names. **Show in Web Editor** is in the gear
 menu rather than the header.
 
+The header's **Tempo** number picker accepts any whole-number BPM from 1, with
+no configured upper limit. It changes playback speed without stopping the tune
+or changing pitch. Click the field for a scrollable list centered on the current
+tempo, then click a BPM to select it. Scrolling reveals further values in either
+direction; **Original** clears the override. Typing and the small `+`/`-` buttons
+remain available. From a blank field, `+` starts at the original tempo plus 1
+(and `-` at the original minus 1, with a minimum of 1). Arrow Up/Down also step
+from the original tempo; Alt+Down opens the list and Escape closes it.
+A blank field (`--`) uses the original tempo, labelled beside
+the picker. The BPM uses the initial `Q:` beat unit (a quarter note at 120 BPM
+when no tempo is specified). Each tune in a tunebook shows its own original
+tempo. Later authored tempo changes scale proportionally: overriding an initial
+120 BPM with 60 BPM also makes a later 90 BPM section play at 45 BPM.
+Changes apply live as the player's already-scheduled notes finish.
+The override is saved per file with personal preferences; clearing the picker
+removes it. Tempo has no global default and never edits the ABC source.
+
 When a previewed file changes (or is reopened), saved voice lists are rebuilt
 from its current inventory. Existing IDs keep their selections; removed IDs
 and stale per-voice notation overrides are dropped; new IDs follow defaults.
 Renaming a voice's label keeps its choice if its ID is unchanged. Changing an
 ID treats it as a new voice. Refreshes never edit the ABC source.
 
-Changing preferences stops playback. Press Play to restart. Selection playback
-uses the complete audio model even when some voices are hidden. Multi-tune files
-have a Play tune selector; saved voice filters and song shifts are file-wide.
+Display and playback voice/chord changes apply without interrupting playback.
+Muted voices rejoin at the current position when enabled again, including notes
+already sustaining. Instrument notation changes also keep playback running.
+Source edits, song transposition and changing the Play tune selection still stop
+playback; press Play to restart. Selection playback uses the complete audio model
+even when some voices are hidden, and its range survives display changes.
+Multi-tune files have a Play tune selector; saved voice filters and song shifts
+are file-wide. Live mixing is implemented by the extension; bundled abc2svg
+files are unchanged.
 
 Preferences are app-managed outside your music repository by default, separately
 for each workspace library. Use these Command Palette commands:
@@ -124,6 +147,7 @@ active. Invalid/read-only/conflicting writes remain visibly unsaved.
         "chords": true
       },
       "transposition": { "semitones": 2 },
+      "tempo": 90,
       "notation": {
         "voices": {
           "bass": { "instrumentKey": "C", "octaveShift": 0 }
@@ -149,6 +173,8 @@ active. Invalid/read-only/conflicting writes remain visibly unsaved.
   resulting sounding key is shown. It is saved per file, never as a default.
   Enharmonic spelling currently follows abc2svg; there is no destination-key
   spelling picker.
+- `tempo` is an extension-specific, file-only BPM override. Omit it for original
+  tempo. It is validated and stored by the extension rather than by abctools.
 - Reset this file removes its overrides. Default controls save only the
   corresponding global settings, preserving all file overrides. New per-voice
   notation changes are file-only; saving defaults clears legacy voice-specific
@@ -179,7 +205,19 @@ at the same time in the selected staff, also produce explicit errors rather
 than silently dropping or changing harmony.
 Personal transforms on sources already declaring pitch/register transforms
 require a confirmed source pitch basis and are not automatically guessed.
-The controls remain available to reset unsupported personal choices.
+When discovery, filtering, personal transforms or projected engraving fail, the
+preview retries the original content with its authored layout. A warning above
+the sheet explains the failure and suggests resetting preferences, adjusting
+the source when appropriate, or reporting the error. Recovery applies no
+personal display/playback/chord choices, instrument overrides or transposition;
+playback uses the original unfiltered music. The header identifies Original
+display/playback mode. Saved preferences are not replaced by recovery settings,
+and controls remain available to retry or reset unsupported personal choices.
+Original-renderer diagnostics are shown alongside any recoverable sheet output.
+If even the original sheet cannot render, both failure reasons are displayed.
+Temporary editing errors do not disable `fit2box`: after the source becomes
+valid again, the saved voice selection and fitted engraving are restored
+without reloading the preview.
 
 Source-position navigation and editor-position diagnostics are explicitly
 disabled in this preview: configuration assembly, projections and fit2box do not

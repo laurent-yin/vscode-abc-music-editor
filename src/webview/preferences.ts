@@ -1,10 +1,11 @@
-import { instrumentKeys, validateChoices, voiceNotation } from 'abctools/preferences';
-import type { FileChoices, VoiceNotation } from 'abctools/preferences';
+import { instrumentKeys, validateChoices, validateTempo, voiceNotation } from '../shared/preferences.mjs';
+import type { FileChoices, VoiceNotation } from '../shared/preferences.mjs';
 import type { RenderMessage } from '../shared/protocol.js';
 import type { PreviewPlan } from './renderer.js';
 import { compactKeyLabel } from './renderer.js';
+import { TempoPicker } from './tempoPicker.js';
 
-const controlSelector = '#personal-controls input, #personal-controls button, #personal-controls select, #personal-controls textarea, .voice-panel input, .voice-panel button, .voice-panel select, #file-controls input, #file-controls select';
+const controlSelector = '#personal-controls input, #personal-controls button, #personal-controls select, #personal-controls textarea, .voice-panel input, .voice-panel button, .voice-panel select, #file-controls input, #file-controls select, #file-controls button';
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] {
     const node = document.createElement(tag);
     if (text) node.textContent = text;
@@ -14,14 +15,16 @@ export class PersonalControls {
     private message?: RenderMessage;
     private pending = false;
     private focusIndex = -1;
-    constructor(private send: (message: unknown) => void) {
+    private tempoPicker?: TempoPicker;
+    constructor(private send: (message: unknown) => void, private setTempo: (tempo: number | undefined, original: number) => void) {
         document.addEventListener('keydown', event => {
-            const panel = document.querySelector<HTMLElement>('#preferences-panel:popover-open, .voice-panel:popover-open');
+            const panel = document.querySelector<HTMLElement>('#preferences-panel:popover-open, .voice-panel:popover-open, #tempo-picker:popover-open');
             if (event.key !== 'Escape' || !panel) return;
             event.preventDefault();
             event.stopImmediatePropagation();
             panel.hidePopover();
-            const toggle = panel.id === 'preferences-panel' ? 'preferences-toggle' : panel.id.replace('-voices', '-toggle');
+            const toggle = panel.id === 'preferences-panel' ? 'preferences-toggle'
+                : panel.id === 'tempo-picker' ? 'playback-tempo' : panel.id.replace('-voices', '-toggle');
             document.getElementById(toggle)?.focus();
         });
     }
@@ -80,6 +83,7 @@ export class PersonalControls {
         return label;
     }
     render(message: RenderMessage, plan: Pick<PreviewPlan, 'inventories' | 'selections' | 'notices'>, firstSoundingKey?: string): void {
+        this.tempoPicker?.dispose();
         this.message = message;
         this.pending = false;
         if (this.focusIndex < 0) this.focusIndex = Array.from(document.querySelectorAll(controlSelector)).indexOf(document.activeElement!);
@@ -97,7 +101,10 @@ export class PersonalControls {
         tuneSelect.id = 'playback-tune';
         plan.inventories.forEach((tune, index) => tuneSelect.append(new Option(tune.title, String(index))));
         if (previousTune && Number(previousTune) < plan.inventories.length) tuneSelect.value = previousTune;
-        tuneSelect.onchange = () => document.getElementById('stop-btn')?.click();
+        tuneSelect.onchange = () => {
+            document.getElementById('stop-btn')?.click();
+            updateTempo();
+        };
         toolbar.append(this.label('Play tune ', tuneSelect));
         const selector = (value: string | undefined, inherited: string, change?: (value: string) => void): HTMLSelectElement => {
             const select = element('select');
@@ -156,7 +163,60 @@ export class PersonalControls {
         const songText = element('span', 'Transpose');
         songText.className = 'header-label';
         songLabel.append(songText, songBox);
-        fileControls.append(keyLabel, songLabel);
+        const tempo = element('input');
+        tempo.id = 'playback-tempo';
+        tempo.type = 'number'; tempo.min = '1'; tempo.step = '1';
+        tempo.placeholder = '--';
+        tempo.value = message.preferences.tempo === undefined ? '' : String(message.preferences.tempo);
+        tempo.setAttribute('aria-label', 'Playback tempo (BPM; blank uses original)');
+        tempo.setAttribute('aria-describedby', 'original-tempo tempo-error');
+        const originalTempo = element('output');
+        originalTempo.id = 'original-tempo';
+        originalTempo.setAttribute('for', tempo.id);
+        const tempoError = element('span');
+        tempoError.id = 'tempo-error'; tempoError.className = 'error';
+        tempoError.setAttribute('role', 'alert');
+        tempoError.hidden = true;
+        const updateTempo = (): boolean => {
+            const original = plan.inventories[Number(tuneSelect.value)]?.tempo ?? 120;
+            originalTempo.textContent = `Original: ${original} BPM`;
+            let value: number | undefined;
+            try {
+                if (tempo.validity.badInput) throw new Error('Enter a whole-number tempo of at least 1 BPM.');
+                value = tempo.value === '' ? undefined : tempo.valueAsNumber;
+                validateTempo(value);
+                tempo.setCustomValidity('');
+                tempo.removeAttribute('aria-invalid');
+                tempoError.hidden = true;
+                this.setTempo(value, original);
+                return true;
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                tempo.setCustomValidity(reason);
+                tempo.setAttribute('aria-invalid', 'true');
+                tempoError.textContent = reason;
+                tempoError.hidden = false;
+                return false;
+            }
+        };
+        tempo.oninput = () => { updateTempo(); };
+        tempo.onchange = () => {
+            if (!updateTempo()) { tempo.reportValidity(); return; }
+            this.edit(choices => {
+                if (tempo.value === '') delete choices.tempo;
+                else choices.tempo = tempo.valueAsNumber;
+            });
+        };
+        tempo.title = 'Playback BPM in the initial Q: beat unit (quarter note if omitted). Blank restores the original tempo. Later tempo changes scale proportionally.';
+        const tempoLabel = element('span');
+        tempoLabel.className = 'file-control tempo-control';
+        const tempoText = element('label', 'Tempo');
+        tempoText.htmlFor = tempo.id;
+        tempoText.className = 'header-label';
+        this.tempoPicker = new TempoPicker(tempo, () => plan.inventories[Number(tuneSelect.value)]?.tempo ?? 120);
+        tempoLabel.append(tempoText, this.tempoPicker.element, originalTempo, tempoError);
+        fileControls.append(keyLabel, songLabel, tempoLabel);
+        updateTempo();
         for (const operation of ['display', 'playback'] as const) {
             const panel = document.getElementById(`${operation}-voices`)!;
             panel.replaceChildren(element('strong', operation === 'display' ? 'Display voices' : 'Playback voices'));

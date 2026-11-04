@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { resolvePreferences, resolveVoiceFilter } from 'abctools/preferences';
-import { sourceModel, createPlan, inventories, maskAudio, shiftInterval, compactKeyLabel } from '../out/webview/renderer.js';
+import { sourceModel, createPlan, originalPlan, inventories, maskAudio, playbackVoices, shiftInterval, compactKeyLabel, renderModel } from '../out/webview/renderer.js';
+import { installVoiceMixer, VoiceMixer } from '../out/webview/playback.js';
 
 const context = vm.createContext({ console });
 for (const filename of ['abc2svg-1.js', 'snd-1.js', 'fit2box-1.js', 'MIDI-1.js']) {
     vm.runInContext(fs.readFileSync(new URL(`../lib/${filename}`, import.meta.url), 'utf8'), context);
 }
 globalThis.abc2svg = context.abc2svg;
+installVoiceMixer(context.abc2svg);
 const fixture = 'X:1\nT:Fixture\nM:2/4\nL:1/4\nV:lead name="Melodia"\nV:low name="Baixaria"\nK:C\n[V:lead] "C/G" C D | E F |]\n[V:low] C, D, | E, F, |]\n';
 function planFor(choices = {}, source = fixture) {
     const effective = resolvePreferences({ version: 1, files: { 'fixture.abc': choices } }, 'fixture.abc');
@@ -35,7 +37,7 @@ function render(plan) {
             if (type === 'note') model.out_svg('<g data-music="true"></g>');
         }
     });
-    model.tosvg('fixture', plan.content);
+    renderModel(model, 'fixture', plan.content);
     return { svg, models, musicSystems: (svg.match(/<svg\b[\s\S]*?<\/svg>/g) ?? []).filter(block => /class="slW"|href="#stdef/.test(block)).length };
 }
 function notes(voice) {
@@ -43,6 +45,74 @@ function notes(voice) {
     for (let symbol = voice.sym; symbol; symbol = symbol.next) if (symbol.notes) result.push(...symbol.notes);
     return result;
 }
+test('original recovery preserves unsupported layouts, authored pitches, chords and all playback voices', () => {
+    const source = '%%MIDI gchordon\n' + fixture.replace('K:C', '%%score (lead low)\nK:C');
+    const choices = { display: { selectedVoiceIds: ['lead'], chords: false }, playback: { selectedVoiceIds: [], chords: false }, transposition: { semitones: 2 } };
+    const before = JSON.stringify(choices);
+    assert.throws(() => planFor(choices, source), /layout operators/);
+    let svg = '';
+    const model = new context.abc2svg.Abc({
+        img_out(text) { svg += text; },
+        errmsg(message) { throw new Error(message); }
+    });
+    model.tosvg('original', source);
+    model.tunes = Array.from(model.tunes);
+    const plan = originalPlan(source, model);
+    assert.equal(plan.fallback, true);
+    assert.equal(plan.content, source);
+    assert.match(svg, />C\/G</);
+    assert.deepEqual(plan.selections[0].playback.ids, ['lead', 'low']);
+    const tune = plan.audio.tunes[0];
+    context.ToAudio().add(tune[0], tune[1], tune[3]);
+    const pitches = voice => {
+        const result = [];
+        for (let symbol = voice.sym; symbol; symbol = symbol.next) {
+            if (symbol.type === context.abc2svg.C.NOTE) result.push(...symbol.notes.map(note => note.midi));
+        }
+        return result;
+    };
+    assert.deepEqual(pitches(tune[1][0]), [60, 62, 64, 65]);
+    assert.deepEqual(pitches(tune[1][1]), [48, 50, 52, 53]);
+    assert.ok(tune[1].find(voice => voice.id === '_chord'));
+    assert.equal(JSON.stringify(choices), before);
+});
+test('original recovery bypasses harmony projection failures during engraving', () => {
+    const source = fixture.replace('[V:low] C,', '[V:low] "Dm" C,');
+    assert.throws(() => render(planFor({}, source)), /Different authored harmonies/);
+    let svg = '';
+    const model = new context.abc2svg.Abc({ img_out(text) { svg += text; }, errmsg(message) { throw new Error(message); } });
+    model.tosvg('original', source);
+    model.tunes = Array.from(model.tunes);
+    const plan = originalPlan(source, model);
+    assert.match(svg, />C\/G</);
+    assert.match(svg, />Dm</);
+    assert.equal(plan.symbolFor(model.tunes[0][0]), model.tunes[0][0]);
+});
+test('editing recovery restores fitting after deleting and restoring a note', () => {
+    const source = '%%fit2box * *\n%%pagescale 1\n%%gchordfont Helvetica-BoldItalic 10\nX:1\nT:Editing recovery\nM:2/4\nL:1/16\nP:ABC\nV:lead\nV:low\nK:C\nP:A\n[V:lead] "C" C4D4 |]\n[V:low] "C" x8 |]\nP:B\n[V:lead] "F" E7F |]\n[V:low] "F" x8 |]\nP:C\n[V:lead] "G7" G4A4 |]\n[V:low] "G7" x8 |]\n';
+    const invalid = source.replace('E7F', 'E7');
+    const geometry = svg => ({
+        boxes: [...svg.matchAll(/viewBox="([^"]+)"/g)].map(match => match[1]),
+        scales: [...svg.matchAll(/transform="scale\(([^)]+)\)"/g)].map(match => match[1])
+    });
+    for (const id of ['lead', 'low']) {
+        const choices = { display: { selectedVoiceIds: [id] } };
+        const baseline = render(planFor(choices, source));
+        assert.ok(geometry(baseline.svg).scales.length);
+        for (let attempt = 0; attempt < 2; attempt++) {
+            assert.throws(() => render(planFor(choices, invalid)), /Cannot place a hidden staff's chord/);
+            assert.equal(context.abc2svg.fit2box.on, 0, 'failed fitting must not disable later renders');
+            assert.ok(!context.abc2svg.fit2box.otosvg, 'no aborted instance may remain saved globally');
+            const recovery = render(originalPlan(invalid, sourceModel(invalid)));
+            assert.ok(geometry(recovery.svg).scales.length, 'the original-sheet fallback must still fit');
+            const restored = planFor(choices, source);
+            const result = render(restored);
+            assert.deepEqual(restored.selections[0].display.ids, [id]);
+            assert.deepEqual(geometry(result.svg), geometry(baseline.svg));
+            assert.match(result.svg, /font:700 italic 10\.0px sans-serif/);
+        }
+    }
+});
 test('source discovery precedes authored score selectors; names and all voices survive', () => {
     const source = fixture.replace('K:C', '%%score lead\nK:C');
     const plan = planFor({ display: { voiceIdFilter: ['low'] }, playback: { voiceIdFilter: ['lead'] } }, source);
@@ -166,6 +236,19 @@ test('first initial sounding key follows song shift, not notation or later key c
     assert.equal(compactKeyLabel('D dorian'), 'D dorian');
     assert.equal(compactKeyLabel(planFor({}, source.replace('K:Gm', 'K:none')).inventories[0].key), 'No key');
 });
+test('tempo inventory uses each tune initial Q beat, named tempo or the 120 BPM default', () => {
+    for (const [q, expected] of [['', 120], ['Q:1/4=90\n', 90], ['Q:3/8=60\n', 60], ['Q:"Allegro"\n', 130], ['Q:"Play gently"\n', 120]]) {
+        const source = fixture.replace('K:C', `${q}K:C`);
+        const plan = planFor({}, source);
+        assert.equal(plan.inventories[0].tempo, expected);
+        const tune = plan.audio.tunes[0];
+        context.ToAudio().add(tune[0], tune[1], tune[3]);
+        assert.equal(inventories(plan.audio)[0].tempo, expected, 'audio preparation must not change the displayed original tempo');
+    }
+    const source = fixture.replace('K:C', 'Q:1/4=90\nK:C') + '\n' + fixture.replace('X:1', 'X:2').replace('K:C', 'Q:1/8=72\nK:C');
+    assert.deepEqual(planFor({}, source).inventories.map(tune => tune.tempo), [90, 72]);
+    assert.equal(planFor({}, fixture.replace('K:C', 'Q:1/4=90\nK:C').replace('C D | E F', 'C D | [Q:1/4=240] E F')).inventories[0].tempo, 90);
+});
 test('fit2box keeps inventory unique and maps display symbols to canonical audio', () => {
     const plan = planFor({}, `%%fit2box * *\n%%pagescale 1\n${fixture}`);
     const rendered = render(plan);
@@ -192,6 +275,44 @@ test('grace-note mapping preserves distinct same-time occurrences after fitting 
     assert.equal(mapped.length, 3);
     assert.equal(new Set(mapped).size, 3);
     assert.equal(new Set(mapped.map(symbol => symbol.istart)).size, 3);
+});
+test('redraws reuse generated audio and stable symbol mappings, including grace timing and count-in beats', () => {
+    const source = '%%MIDI gchordon\n%%playbeats 1\n%%fit2box * *\n%%pagescale 1\n'
+        + fixture.replace('C D | E F', '{GAB}C D | "F" E F');
+    const initial = planFor({}, source);
+    const originalTimes = new Map();
+    for (const voice of initial.audio.tunes[0][1]) for (let symbol = voice.sym; symbol; symbol = symbol.next) originalTimes.set(symbol, symbol.time);
+    const tune = initial.audio.tunes[0];
+    context.ToAudio().add(tune[0], tune[1], tune[3]);
+    const shifted = [...originalTimes].filter(([symbol, time]) => symbol.time !== time);
+    assert.ok(shifted.length, 'the engine mutates engraving-time positions during audio generation');
+    for (const selected of [[], ['lead'], ['low'], ['lead', 'low']]) {
+        const effective = resolvePreferences({ version: 1, files: { 'fixture.abc': {
+            display: { selectedVoiceIds: selected }, playback: { selectedVoiceIds: selected }
+        } } }, 'fixture.abc');
+        const original = sourceModel(source);
+        const selections = inventories(original).map(tune => ({
+            display: resolveVoiceFilter(effective.display, tune.voices),
+            playback: resolveVoiceFilter(effective.playback, tune.voices)
+        }));
+        const updated = createPlan(source, effective, original, selections, initial.audio);
+        assert.equal(updated.audio, initial.audio);
+        assert.deepEqual(updated.inventories[0].voices.map(voice => voice.id), ['lead', 'low']);
+        const rendered = render(updated);
+        for (const voice of rendered.models[0]) {
+            for (let symbol = voice.sym; symbol; symbol = symbol.next) {
+                if (symbol.type !== context.abc2svg.C.NOTE) continue;
+                const canonical = updated.symbolFor(symbol, 0);
+                assert.ok(canonical, `${voice.id} at ${symbol.time} must map to existing audio`);
+                assert.equal(originalTimes.get(canonical), symbol.time);
+            }
+        }
+        const enabled = playbackVoices(updated.audio.tunes, selections, false);
+        for (const [voice, active] of enabled) {
+            assert.equal(active, voice.id === '_beats' || selected.includes(voice.id));
+            assert.ok(notes(voice).every(note => !note.noplay), 'live filtering must not mutate authored note flags');
+        }
+    }
 });
 test('reject unsupported source transforms and complex layout explicitly', () => {
     assert.throws(() => planFor({ notation: { instrumentKey: 'Bb' } }, fixture.replace('V:lead name=', 'V:lead transpose=-2 name=')), /source pitch basis/);
@@ -291,10 +412,12 @@ test('braced melody/rhythm score retains rests, maps and canonical audio under v
     }
 });
 
-function scheduled(plan, chords = true) {
+function scheduled(plan, chords = true, live = false, speed = 1) {
     const tune = plan.audio.tunes[0];
     context.ToAudio().add(tune[0], tune[1], tune[3]);
-    maskAudio(plan.audio.tunes, plan.selections, chords);
+    const mixer = live ? new VoiceMixer() : undefined;
+    if (mixer) mixer.update(playbackVoices(plan.audio.tunes, plan.selections, chords));
+    else maskAudio(plan.audio.tunes, plan.selections, chords);
     const events = [];
     const timers = [];
     let ended = false;
@@ -309,16 +432,22 @@ function scheduled(plan, chords = true) {
     };
     context.clearTimeout = () => {};
     const po = {
-        s_cur: tune[0], s_end: null, conf: { speed: 1 }, tgen: 100000,
+        s_cur: tune[0], s_end: null, conf: { speed: 1, new_speed: speed, voiceMixer: mixer }, tgen: 100000,
+        ...(live ? {
+            ac: { createGain: () => ({ gain: { value: 1 }, connect() {}, disconnect() {} }) },
+            gain: {}
+        } : {}),
         get_time: () => 0, v_c: [], c_i: [],
         midi_ctrl() {}, midi_prog() {}, onnote, onend,
         note_run(_po, symbol, midi, time, duration) {
+            if (live && !_po.gain.gain.value) return;
             events.push({ id: symbol.p_v.id, midi, time, duration });
         }
     };
     context.abc2svg.play_next(po);
     while (timers.length && !ended) timers.shift()();
     assert.equal(ended, true);
+    mixer?.clear();
     return events;
 }
 test('shared MIDI/WebAudio scheduler preserves repeats/ties/tuplets/graces and chord timing under masks', () => {
@@ -334,6 +463,38 @@ test('shared MIDI/WebAudio scheduler preserves repeats/ties/tuplets/graces and c
             assert.deepEqual(actual, expected);
         }
     }
+});
+test('extension live routing preserves the real scheduler timeline, overlays, grace notes, ties, repeats and chords', () => {
+    const source = '%%MIDI gchordon\nX:1\nT:Live navigation\nM:2/4\nL:1/8\nP:AABB\nV:lead\nV:low\nK:C\nP:A\n[V:lead] "C" {G}C2- C2 |]\n[V:low] C,2 E,2 & E,2 G,2 |]\nP:B\n[V:lead] "G7" (3DEF G2 |]\n[V:low] G,2 B,2 |]\n';
+    const baseline = scheduled(planFor({}, source));
+    for (const selected of [[], ['lead'], ['low'], ['lead', 'low']]) for (const chords of [false, true]) {
+        const plan = planFor({ playback: { selectedVoiceIds: selected } }, source);
+        const actual = scheduled(plan, chords, true);
+        const expected = baseline.filter(event => event.id === '_chord' ? chords : selected.includes(event.id === 'lowo' ? 'low' : event.id));
+        assert.deepEqual(actual, expected);
+        for (const voice of plan.audio.tunes[0][1]) assert.ok(notes(voice).every(note => !note.noplay));
+    }
+});
+test('live speed API scales all authored tempo changes and never changes pitch', () => {
+    const source = fixture.replace('K:C', 'Q:1/4=120\nK:C').replace('C D | E F', 'C D | [Q:1/4=90] E F');
+    const baseline = scheduled(planFor({}, source), false, true);
+    const conf = {};
+    context.navigator = { userAgent: 'test' };
+    const player = context.AbcPlay(conf);
+    assert.equal(typeof player.set_speed, 'function');
+    for (const bpm of [1, 60, 120, 240, 100000]) {
+        player.set_speed(bpm / 120);
+        const events = scheduled(planFor({}, source), false, true, conf.new_speed);
+        assert.equal(events.length, baseline.length);
+        events.forEach((event, index) => {
+            assert.equal(event.midi, baseline[index].midi);
+            assert.equal(event.id, baseline[index].id);
+            assert.ok(Math.abs(event.duration - baseline[index].duration * 120 / bpm) < 1e-9);
+            assert.ok(Math.abs(event.time - (0.3 + (baseline[index].time - 0.3) * 120 / bpm)) < 1e-9);
+        });
+    }
+    player.set_speed(1);
+    assert.equal(conf.new_speed, 1, 'blank/original restores the authored timing');
 });
 test('source IDs may be arbitrary Unicode names, independent of duplicate labels', () => {
     const source = fixture.replaceAll('lead', 'alto.1').replaceAll('low', 'baixo-ç').replace('Baixaria', 'Melodia');

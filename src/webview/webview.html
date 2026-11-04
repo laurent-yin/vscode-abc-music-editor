@@ -26,6 +26,19 @@
         .transposition-box input { border: 0; background: transparent; color: inherit; font: inherit; padding: 2px; }
         .transposition-box:focus-within { outline: 1px solid var(--vscode-focusBorder, #007acc); }
         #song-key { max-width: 6em; overflow: hidden; text-overflow: ellipsis; }
+        .tempo-input { display: inline-flex; border: 1px solid var(--vscode-input-border, #888); }
+        #playback-tempo { width: 3.7em; font: inherit; border: 0; appearance: textfield; }
+        #playback-tempo::-webkit-inner-spin-button, #playback-tempo::-webkit-outer-spin-button { display: none; }
+        .tempo-steps { display: flex; flex-direction: column; }
+        .tempo-steps button { width: 1.4em; height: 12px; padding: 0; font-size: 10px; line-height: 10px; }
+        #tempo-picker { position: fixed; inset: auto; margin: 0; width: 10em; max-width: calc(100vw - 16px); padding: .3em; box-sizing: border-box; color: var(--vscode-editor-foreground, #222); background: var(--vscode-editor-background, white); border: 1px solid var(--vscode-widget-border, #888); box-shadow: 0 4px 16px #0004; }
+        .tempo-original { width: 100%; padding: .4em; }
+        .tempo-options { height: min(252px, calc(100dvh - 100px)); overflow-y: auto; box-sizing: border-box; overscroll-behavior: contain; scroll-behavior: auto; }
+        .tempo-options button { display: block; width: 100%; height: 28px; padding: 0; border: 0; font: inherit; color: inherit; background: transparent; cursor: pointer; }
+        .tempo-options button:hover, .tempo-options button:focus-visible, .tempo-options [aria-selected=true] { color: var(--vscode-list-activeSelectionForeground, white); background: var(--vscode-list-activeSelectionBackground, #005a9e); }
+        #original-tempo { font-size: 11px; }
+        .tempo-control { flex-wrap: wrap; max-width: 100%; }
+        #tempo-error:not([hidden]) { white-space: normal; max-width: 18em; flex-basis: 100%; }
         .voice-panel > button { margin-left: .6em; }
         #preferences-toggle { margin-left: auto; padding: 4px; }
         #preferences-panel {
@@ -42,6 +55,7 @@
             #preview-toolbar > button { padding: 2px; font-size: 12px; }
         }
         @media (max-width: 600px) {
+            #preview-toolbar { flex-wrap: wrap; }
             .file-control .header-label { display: none; }
             .transposition-box input { width: 2.5em; appearance: textfield; }
             .transposition-box input::-webkit-inner-spin-button, .transposition-box input::-webkit-outer-spin-button { display: none; }
@@ -53,6 +67,8 @@
         #personal-controls input[type=number] { width: 5em; }
         #personal-controls button { margin: .2em; }
         .error { color: var(--vscode-errorForeground, #b00020); }
+        #preview-status { white-space: pre-wrap; padding: .6em; border: 1px solid currentColor; }
+        .warning { color: var(--vscode-editorWarning-foreground, #805500); }
 		#play-button {
 			margin: 10px;
 			padding: 6px 12px;
@@ -130,6 +146,7 @@
     </div>
     <div id="display-voices" class="voice-panel" popover aria-label="Display voices"></div>
     <div id="playback-voices" class="voice-panel" popover aria-label="Playback voices"></div>
+    <div id="tempo-picker" popover aria-label="Choose playback tempo"></div>
     <div id="preferences-panel" popover aria-label="Personal music preferences">
         <h2>Personal music preferences</h2>
         <button id="open-web" type="button">Show in Web Editor</button>
@@ -142,6 +159,7 @@
 	 * abc.tosvg() will generate SVG content that gets inserted here via abc_images
 	 * Each musical line/staff typically becomes a separate SVG element
 	 -->
+    <div id="preview-status" role="status" hidden></div>
 	<div id="sheet"></div>
 	<!--<div id="sheet" style="border:1px solid black;	width:800px; height:1200px;padding:0px"></div>-->
 	<!-- 

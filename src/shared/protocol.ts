@@ -1,4 +1,4 @@
-import type { EffectiveChoices, FileChoices } from 'abctools/preferences' with { "resolution-mode": "import" };
+import type { EffectiveChoices, FileChoices } from './preferences.mjs' with { "resolution-mode": "import" };
 
 export interface RenderMessage {
     command: 'render';

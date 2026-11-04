@@ -27,3 +27,23 @@ test('atomic personal store round trips, detects concurrent writes and reports m
         await assert.rejects(store.read(), /Unsupported/);
     } finally { await rm(directory, { recursive: true }); }
 });
+test('per-file tempo persists alongside other preferences and can be reset independently', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'abc-tempo-'));
+    try {
+        const store = new PreferenceStore(path.join(directory, 'preferences.json'));
+        const empty = await store.read();
+        await store.write({ version: 1, files: { 'fixture.abc': { tempo: 1, transposition: { semitones: 2 } } } }, empty.revision);
+        const saved = await store.read();
+        assert.equal(saved.value.files['fixture.abc'].tempo, 1);
+        saved.value.files['fixture.abc'].tempo = 100000;
+        await store.write(saved.value, saved.revision);
+        const high = await store.read();
+        assert.equal(high.value.files['fixture.abc'].tempo, 100000);
+        await assert.rejects(store.write({ version: 1, files: { 'fixture.abc': { tempo: 0 } } }, high.revision), /whole number/);
+        delete high.value.files['fixture.abc'].tempo;
+        await store.write(high.value, high.revision);
+        const cleared = await store.read();
+        assert.equal(cleared.value.files['fixture.abc'].tempo, undefined);
+        assert.equal(cleared.value.files['fixture.abc'].transposition.semitones, 2);
+    } finally { await rm(directory, { recursive: true }); }
+});

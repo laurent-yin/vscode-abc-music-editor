@@ -141,7 +141,7 @@ async function postAbcToWebview(document: vscode.TextDocument): Promise<void> {
         const root = libraryRoot(document);
         const selectedStore = preferenceStore(document);
         const [selectedSnapshot, tools, preferences] = await Promise.all([
-            selectedStore.read(), import('abctools'), import('abctools/preferences')
+            selectedStore.read(), import('abctools'), import('../shared/preferences.mjs')
         ]);
         const resourceKey = path.relative(root, document.fileName).split(path.sep).join('/');
         const effective = preferences.resolvePreferences(selectedSnapshot.value, resourceKey);
@@ -175,7 +175,7 @@ async function savePreferences(message: PreferenceMessage): Promise<void> {
         const document = previewDocument;
         const selectedStore = store;
         const selectedSnapshot = snapshot;
-        const tools = await import('abctools/preferences');
+        const tools = await import('../shared/preferences.mjs');
         if (message.revision !== revision) throw new Error('The document changed before saving preferences. Try again from the refreshed preview.');
         const resourceKey = tools.validateResourceKey(path.relative(libraryRoot(document), document.fileName).split(path.sep).join('/'));
         const value = structuredClone(selectedSnapshot.value);
@@ -186,7 +186,7 @@ async function savePreferences(message: PreferenceMessage): Promise<void> {
             files[resourceKey] = tools.validateChoices(message.choices);
         } else if (message.action === 'defaults') {
             const choices = tools.validateChoices(message.choices);
-            const { transposition: _transposition, ...personal } = choices;
+            const { transposition: _transposition, tempo: _tempo, ...personal } = choices;
             value.defaults = personal;
         } else {
             throw new Error('Unknown preference action');
@@ -218,6 +218,7 @@ function showMusicPreview(context: vscode.ExtensionContext) {
 		localResourceRoots: [
 			vscode.Uri.file(path.join(context.extensionPath, 'lib')),
 			vscode.Uri.file(path.join(context.extensionPath, 'out', 'lib')),
+			vscode.Uri.file(path.join(context.extensionPath, 'out', 'shared')),
 			vscode.Uri.file(path.join(context.extensionPath, 'out', 'webview'))
 		]
 	});
