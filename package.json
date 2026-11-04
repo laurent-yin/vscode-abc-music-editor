@@ -100,7 +100,6 @@
 		"webviewResources": [
 			"lib/**",
 			"out/lib/**",
-			"out/shared/**",
 			"out/webview/**"
 		]
 	},
@@ -109,7 +108,7 @@
 		"clean": "rm -rf out",
 		"build": "tsc -p ./ && tsc -p tsconfig.webview.json && npm run copy-assets",
 		"copy-assets": "node scripts/copy-assets.mjs",
-		"lint": "eslint src --ext ts,mts",
+		"lint": "eslint src --ext ts",
 		"watch": "tsc -watch -p ./",
 		"pretest": "npm run build && npm run lint",
 		"test": "node --test test/*.test.mjs",
@@ -127,7 +126,7 @@
 		"minimatch": "^11.0.1"
 	},
 	"dependencies": {
-		"abctools": "0.2.0",
+		"abctools": "0.2.1",
 		"lz-string": "^1.5.0"
 	}
 }

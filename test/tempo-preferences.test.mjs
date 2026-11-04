@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateChoices, validatePreferences, parsePreferences, serializePreferences, resolvePreferences, refreshFileVoices } from '../out/shared/preferences.mjs';
+import { validateChoices, validatePreferences, parsePreferences, serializePreferences, resolvePreferences, refreshFileVoices } from 'abctools/preferences';
 
 test('tempo accepts positive whole-number BPM without an application upper bound', () => {
     for (const tempo of [1, 120, 1000, 1000000, Number.MAX_SAFE_INTEGER]) {
@@ -9,8 +9,8 @@ test('tempo accepts positive whole-number BPM without an application upper bound
     for (const tempo of [0, -1, 1.5, NaN, Infinity, -Infinity, '120', null]) {
         assert.throws(() => validateChoices({ tempo }), /whole number/);
     }
-    assert.deepEqual(validateChoices({ tempo: undefined }), {});
-    assert.throws(() => validateChoices({ tempo: 90 }, false), /file-only/);
+    assert.equal(validateChoices({ tempo: undefined }).tempo, undefined);
+    assert.throws(() => validateChoices({ tempo: 90 }, false), /Unknown preference/);
     assert.throws(() => validateChoices({ typo: true, tempo: 90 }), /Unknown preference/);
     assert.throws(() => validatePreferences({ version: 1, defaults: { tempo: 90 } }), /Unknown preference/);
     assert.throws(() => validatePreferences({ version: 1, files: { '../bad.abc': { tempo: 90 } } }), /Invalid library-relative/);

@@ -1,5 +1,5 @@
-import { instrumentKeys, validateChoices, validateTempo, voiceNotation } from '../shared/preferences.mjs';
-import type { FileChoices, VoiceNotation } from '../shared/preferences.mjs';
+import { instrumentKeys, validateChoices, validateTempo, voiceNotation } from 'abctools/preferences';
+import type { FileChoices, VoiceNotation } from 'abctools/preferences';
 import type { RenderMessage } from '../shared/protocol.js';
 import type { PreviewPlan } from './renderer.js';
 import { compactKeyLabel } from './renderer.js';

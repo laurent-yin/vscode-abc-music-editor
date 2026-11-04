@@ -1,4 +1,4 @@
-import { validateTempo } from '../shared/preferences.mjs';
+import { validateTempo } from 'abctools/preferences';
 
 const radius = 50;
 const rowHeight = 28;

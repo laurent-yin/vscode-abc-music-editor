@@ -4,7 +4,7 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { resolvePreferences, validateChoices } from '../out/shared/preferences.mjs';
+import { resolvePreferences, validateChoices } from 'abctools/preferences';
 import { PreferenceStore } from '../out/extension/preferenceStore.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));

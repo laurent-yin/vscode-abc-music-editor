@@ -173,8 +173,9 @@ active. Invalid/read-only/conflicting writes remain visibly unsaved.
   resulting sounding key is shown. It is saved per file, never as a default.
   Enharmonic spelling currently follows abc2svg; there is no destination-key
   spelling picker.
-- `tempo` is an extension-specific, file-only BPM override. Omit it for original
-  tempo. It is validated and stored by the extension rather than by abctools.
+- `tempo` is a file-only BPM override in the shared abctools preferences schema.
+  Omit it for original tempo. abctools validates, resolves and serializes it;
+  the extension supplies the playback UI and persists preferences to disk.
 - Reset this file removes its overrides. Default controls save only the
   corresponding global settings, preserving all file overrides. New per-voice
   notation changes are file-only; saving defaults clears legacy voice-specific
@@ -225,7 +226,7 @@ yet provide a composed source map. Errors are shown in the preview instead.
 
 ## Development and validation
 
-The extension uses the published `abctools@0.2.0` npm package, including its
+The extension uses the published `abctools@0.2.1` npm package, including its
 portable preferences and configuration APIs. No sibling checkout is required.
 
 Development tooling requires Node.js 20.19+, 22.13+, or 24+. This does not

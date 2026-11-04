@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { Preferences } from '../shared/preferences.mjs' with { "resolution-mode": "import" };
+import type { Preferences } from 'abctools/preferences' with { "resolution-mode": "import" };
 
 export interface PreferenceSnapshot { value: Preferences; revision: string }
 function missing(error: unknown): boolean {
@@ -18,12 +18,12 @@ export class PreferenceStore {
             if (missing(error)) return { value: { version: 1 }, revision: 'missing' };
             throw error;
         }
-        const { parsePreferences } = await import('../shared/preferences.mjs');
+        const { parsePreferences } = await import('abctools/preferences');
         return { value: parsePreferences(text), revision: createHash('sha256').update(text).digest('hex') };
     }
 
     async write(value: Preferences, revision: string): Promise<void> {
-        const { serializePreferences } = await import('../shared/preferences.mjs');
+        const { serializePreferences } = await import('abctools/preferences');
         const text = serializePreferences(value);
         await fs.mkdir(path.dirname(this.filename), { recursive: true });
         const lock = `${this.filename}.lock`;
