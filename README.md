@@ -98,8 +98,12 @@ ID treats it as a new voice. Refreshes never edit the ABC source.
 
 Display and playback voice/chord changes apply without interrupting playback.
 Muted voices rejoin at the current position when enabled again, including notes
-already sustaining. Instrument notation changes also keep playback running.
-Source edits, song transposition and changing the Play tune selection still stop
+already sustaining. Instrument notation and song transposition changes also keep
+playback running, preserving the current position and selection. Song
+transposition retunes sustained and queued pitched notes, including accompaniment,
+without changing tempo; percussion and count-in beats keep their pitch.
+MIDI notes shifted outside its 0-127 pitch range are silent until shifted back.
+Source edits and changing the Play tune selection still stop
 playback; press Play to restart. Selection playback uses the complete audio model
 even when some voices are hidden, and its range survives display changes.
 Multi-tune files have a Play tune selector; saved voice filters and song shifts

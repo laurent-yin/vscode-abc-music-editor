@@ -184,6 +184,7 @@ function createPlayer(): AbcPlay {
     const tuneIndex = Number((document.getElementById('playback-tune') as HTMLSelectElement | null)?.value ?? 0);
     const original = previewPlan?.inventories[tuneIndex]?.tempo;
     if (original) player.set_speed((currentMessage?.preferences.tempo ?? original) / original);
+    voiceMixer.update(new Map(), previewPlan?.playbackTransposition ?? 0);
     return player;
 }
 let abc: AbcInstance;
@@ -277,7 +278,8 @@ async function renderPersonalPreview(message: RenderMessage): Promise<void> {
     const retainedAudio = canRetainPlayback(currentMessage, message, previewPlan) ? playbackModel : undefined;
     const redraw = !retainedAudio
         || JSON.stringify(currentMessage?.preferences.display) !== JSON.stringify(message.preferences.display)
-        || JSON.stringify(currentMessage?.preferences.notation) !== JSON.stringify(message.preferences.notation);
+        || JSON.stringify(currentMessage?.preferences.notation) !== JSON.stringify(message.preferences.notation)
+        || currentMessage?.preferences.transposition.semitones !== message.preferences.transposition.semitones;
     if (!retainedAudio) {
         stopForChange();
         playbackModel = undefined;
@@ -333,7 +335,7 @@ async function renderPersonalPreview(message: RenderMessage): Promise<void> {
             indexPlaybackSymbols(plan.audio);
             selx_sav[0] = selx_sav[1] = 0;
         }
-        if (!plan.fallback) voiceMixer?.update(playbackVoices(plan.audio.tunes, selections, message.preferences.playback.chords));
+        if (!plan.fallback) voiceMixer?.update(playbackVoices(plan.audio.tunes, selections, message.preferences.playback.chords), plan.playbackTransposition);
         currentAbcContent = message.content;
         if (redraw) renderAbcContent(plan.content, undefined, !!retainedAudio);
         personalControls.render(message, plan, plan.inventories[0]?.key);

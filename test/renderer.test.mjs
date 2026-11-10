@@ -314,6 +314,45 @@ test('redraws reuse generated audio and stable symbol mappings, including grace 
         }
     }
 });
+test('live song transposition retains canonical audio but refreshes keys, harmony and notation from the original pitch basis', () => {
+    const source = '%%MIDI gchordon\n%%playbeats 1\n%%fit2box * *\n%%pagescale 1\n'
+        + fixture.replace('C D | E F', '{GAB}C D | "F" E F');
+    const describe = voices => Array.from(voices, voice => {
+        const symbols = [];
+        for (let symbol = voice.sym; symbol; symbol = symbol.next) {
+            symbols.push([symbol.time, symbol.notes?.map(note => note.pit),
+                symbol.a_gch?.filter(chord => chord.type === 'g').map(chord => chord.text)]);
+        }
+        return { id: voice.id, key: voice.key.k_sf, symbols };
+    });
+    for (const base of [0, 2, -3]) {
+        const initial = planFor({ transposition: { semitones: base } }, source);
+        const tune = initial.audio.tunes[0];
+        context.ToAudio().add(tune[0], tune[1], tune[3]);
+        const audioNotes = tune[1].flatMap(notes).map(note => note.midi);
+        for (const shift of [2, -2, 0, 24, -24, base]) {
+            const choices = { transposition: { semitones: shift }, display: { selectedVoiceIds: ['lead'] },
+                notation: { instrumentKey: 'Bb' } };
+            const effective = resolvePreferences({ version: 1, files: { 'fixture.abc': choices } }, 'fixture.abc');
+            const fresh = planFor(choices, source);
+            const updated = createPlan(source, effective, sourceModel(source), fresh.selections, initial.audio);
+            assert.equal(updated.audio, initial.audio);
+            assert.equal(updated.playbackTransposition, shift - base);
+            assert.equal(updated.inventories[0].key, fresh.inventories[0].key);
+            const rendered = render(updated);
+            assert.deepEqual(describe(rendered.models[0]), describe(render(fresh).models[0]));
+            for (const voice of rendered.models[0]) for (let symbol = voice.sym; symbol; symbol = symbol.next) {
+                if (symbol.type === context.abc2svg.C.NOTE) {
+                    assert.equal(updated.symbolFor(symbol, 0)?.p_v.id, voice.id);
+                }
+                for (let grace = symbol.extra; grace; grace = grace.next) {
+                    assert.ok(updated.symbolFor(grace, 0), 'grace notes still map to the running audio');
+                }
+            }
+            assert.deepEqual(tune[1].flatMap(notes).map(note => note.midi), audioNotes, 'canonical pitches are never rewritten');
+        }
+    }
+});
 test('reject unsupported source transforms and complex layout explicitly', () => {
     assert.throws(() => planFor({ notation: { instrumentKey: 'Bb' } }, fixture.replace('V:lead name=', 'V:lead transpose=-2 name=')), /source pitch basis/);
     for (const layout of ['(lead low)', 'lead | low', '{ [lead low] }']) {

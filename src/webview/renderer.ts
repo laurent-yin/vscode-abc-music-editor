@@ -38,6 +38,7 @@ export interface PreviewPlan {
     fallback?: boolean;
     content: string;
     audio: Model;
+    playbackTransposition?: number;
     inventories: Inventory[];
     selections: Selections[];
     notices: string[];
@@ -256,17 +257,20 @@ export async function filterSelections(choices: EffectiveChoices, voiceLists: Vo
         });
     } finally { worker?.terminate(); URL.revokeObjectURL(workerUrl); }
 }
-const canonicalLookups = new WeakMap<Model, { lookup: Map<string, MusicSymbol[]>[]; times: WeakMap<MusicSymbol, number> }>();
+const canonicalLookups = new WeakMap<Model, { lookup: Map<string, MusicSymbol[]>[]; times: WeakMap<MusicSymbol, number>; transposition: number }>();
 export function createPlan(content: string, choices: EffectiveChoices, original: Model, selections: Selections[], retainedAudio?: Model): PreviewPlan {
     const notationRequested = choices.notation.instrumentKey !== undefined || choices.notation.octaveShift !== undefined || Object.keys(choices.notation.voices ?? {}).length > 0;
     if ((notationRequested || choices.transposition.semitones) && /(?:\b(?:score|sound|shift|transpose|octave)\s*=|^[ \t]*(?:%%|I:)transpose\b)/m.test(content.replace(/^[ \t]*%(?!%)[^\n]*$/gm, ''))) {
         throw new Error('This source already declares pitch/register transforms. Personal transposition requires a confirmed source pitch basis; remove personal notation/transposition settings or use a concert-pitch source.');
     }
     const audio = retainedAudio ?? sourceModel(projected(content, original, selections, choices, false));
-    const inventory = inventories(audio);
     // ToAudio moves grace/beat symbols in place. Keep their engraving-time keys
     // so redraws still map to the very same running playback objects.
     const cached = canonicalLookups.get(audio);
+    const transposition = cached?.transposition ?? choices.transposition.semitones;
+    const playbackTransposition = choices.transposition.semitones - transposition;
+    const concert = playbackTransposition ? sourceModel(projected(content, original, selections, choices, false)) : audio;
+    const inventory = inventories(concert);
     const times = cached?.times ?? new WeakMap<MusicSymbol, number>();
     const lookup = cached?.lookup ?? audio.tunes.map(tune => {
         const map = new Map<string, MusicSymbol[]>();
@@ -279,12 +283,12 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
         }
         return map;
     });
-    canonicalLookups.set(audio, { lookup, times });
+    canonicalLookups.set(audio, { lookup, times, transposition });
     const notices = selections.flatMap((selection, i) => [...selection.display.notices, ...selection.playback.notices].map(notice => `${inventory[i].title}: ${notice}`));
     const displaySymbols = new WeakMap<MusicSymbol, MusicSymbol>();
     notices.push('Source navigation and source-position diagnostics are disabled: configuration, personal projections and fit2box do not yet provide a composed source map.');
     return {
-        content: projected(content, original, selections, choices, true), audio, inventories: inventory, selections, notices,
+        content: projected(content, original, selections, choices, true), audio, playbackTransposition, inventories: inventory, selections, notices,
         symbolFor(symbol) { return displaySymbols.get(symbol); },
         prepareDisplay(model, voices, index) {
             const owners = voiceOwners(voices);
@@ -306,8 +310,8 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
                 return;
             }
             const harmony = new Map<number, { voice: MusicVoice; chords: Chord[] }>();
-            for (const voice of audio.tunes[index][1]) for (const symbol of symbols(voice)) {
-                const time = times.get(symbol);
+            for (const voice of concert.tunes[index][1]) for (const symbol of symbols(voice)) {
+                const time = concert === audio ? times.get(symbol) : symbol.time;
                 if (time === undefined) continue;
                 const chords = symbol.a_gch?.filter(chord => chord.type === 'g');
                 if (!chords?.length) continue;
