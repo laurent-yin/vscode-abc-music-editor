@@ -112,7 +112,8 @@
 		"watch": "tsc -watch -p ./",
 		"pretest": "npm run build && npm run lint",
 		"test": "node --test test/*.test.mjs",
-		"test:host": "npm run build && node test/run-extension-host.mjs"
+		"test:host": "npm run build && node test/run-extension-host.mjs",
+		"test:grid-browser": "npm run build && node test/grid-browser.mjs"
 	},
 	"devDependencies": {
 		"@types/node": "^22.14.1",
@@ -120,13 +121,14 @@
 		"@typescript-eslint/eslint-plugin": "^8.72.1",
 		"@typescript-eslint/parser": "^8.72.1",
 		"eslint": "^10.14.0",
+		"playwright": "^1.65.0",
 		"typescript": "^5.8.3"
 	},
 	"overrides": {
 		"minimatch": "^11.0.1"
 	},
 	"dependencies": {
-		"abctools": "0.2.1",
+		"abctools": "file:vendor/abctools-0.2.5.tgz",
 		"lz-string": "^1.5.0"
 	}
 }

@@ -46,8 +46,7 @@ const server = http.createServer(async (request, response) => {
                 if (update.action === 'reset') delete files['fixture.abc'];
                 else if (update.action === 'file') files['fixture.abc'] = validateChoices(update.choices);
                 else {
-                    const { transposition, tempo, ...personal } = validateChoices(update.choices);
-                    value.defaults = personal;
+                    value.defaults = validateChoices(update.choices, false);
                 }
                 await store.write(value, snapshot.revision);
                 snapshot = await store.read();

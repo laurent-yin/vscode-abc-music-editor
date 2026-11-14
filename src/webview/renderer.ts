@@ -1,5 +1,7 @@
 import { voiceNotation, resolveVoiceFilter } from 'abctools/preferences';
 import type { EffectiveChoices, FilterResult, VoiceDescriptor } from 'abctools/preferences';
+import { captureGridSnapshot, chordGridFromSnapshot } from './chordGridModel.js';
+import type { ChordGrid, GridSnapshot } from './chordGridModel.js';
 
 export interface MusicNote { midi?: number; noplay?: boolean | number; pit: number; acc?: number }
 export interface Chord { type: string; text: string; otext?: string; [key: string]: unknown }
@@ -42,6 +44,8 @@ export interface PreviewPlan {
     inventories: Inventory[];
     selections: Selections[];
     notices: string[];
+    grids?: (ChordGrid | undefined)[];
+    gridSelection?(start: number, end: number): { start: number; end: number } | undefined;
     symbolFor(displaySymbol: MusicSymbol, tuneIndex: number): MusicSymbol | undefined;
     prepareDisplay(model: Model, voices: MusicVoice[], tuneIndex: number): void;
 }
@@ -71,12 +75,18 @@ export function renderModel(model: Pick<Model, 'tosvg'>, id: string, content: st
         }
     }
 }
+const gridSnapshots = new WeakMap<Model, GridSnapshot[]>();
 function parse(content: string): Model {
-    const model = new abc2svg.Abc({ errmsg(message) { throw new Error(message); } });
+    const snapshots: GridSnapshot[] = [];
+    const model = new abc2svg.Abc({
+        errmsg(message) { throw new Error(message); },
+        get_abcmodel(_first, voices, _names, info) { snapshots.push(captureGridSnapshot(voices, info)); }
+    });
     renderModel(model, 'abc', content);
     // abc2svg exposes tunes on a prototype replaced by each constructor.
     // Own the array before constructing the independent display instance.
     model.tunes = Array.from(model.tunes);
+    gridSnapshots.set(model, snapshots);
     return model;
 }
 function stripLayouts(content: string): string {
@@ -286,9 +296,44 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
     canonicalLookups.set(audio, { lookup, times, transposition });
     const notices = selections.flatMap((selection, i) => [...selection.display.notices, ...selection.playback.notices].map(notice => `${inventory[i].title}: ${notice}`));
     const displaySymbols = new WeakMap<MusicSymbol, MusicSymbol>();
+    const gridTunes = selections.map(selection => !selection.display.ids.length && choices.display.chords !== false);
+    const displayContent = projected(content, original, selections, choices, true);
+    const gridDisplay = gridTunes.some(Boolean) ? sourceModel(displayContent) : undefined;
+    const grids = gridTunes.map((enabled, index) => {
+        if (!enabled || !gridDisplay) return undefined;
+        const snapshot = gridSnapshots.get(gridDisplay)?.[index];
+        if (!snapshot) throw new Error('Cannot associate chord grid with its parsed tune.');
+        const grid = chordGridFromSnapshot(snapshot, choices.chordSourceVoiceId, choices.chordGrid.repeatMeasures, choices.chordGrid.showTextInstructions);
+        for (const measure of grid.measures) {
+            measure.sourceIds = [...lookup[index].values()].flat().filter(symbol => {
+                const time = times.get(symbol);
+                return symbol.dur && symbol.istart !== undefined && time !== undefined
+                    && time >= measure.start && time < measure.start + measure.duration;
+            }).map(symbol => symbol.istart!);
+            if (!measure.sourceIds.length) grid.notices.push('A measure inside an authored multi-measure rest has no separate playback event; use full-tune playback for that passage.');
+        }
+        notices.push(...grid.notices);
+        return grid;
+    });
     notices.push('Source navigation and source-position diagnostics are disabled: configuration, personal projections and fit2box do not yet provide a composed source map.');
     return {
-        content: projected(content, original, selections, choices, true), audio, playbackTransposition, inventories: inventory, selections, notices,
+        content: displayContent, audio, playbackTransposition, inventories: inventory, selections, notices, grids,
+        gridSelection(start, end) {
+            for (const [index, grid] of grids.entries()) {
+                if (!grid) continue;
+                const first = grid.measures.find(measure => measure.sourceIds?.includes(start));
+                const last = grid.measures.find(measure => measure.sourceIds?.includes(end));
+                if (!first || !last) continue;
+                const from = Math.min(first.start, last.start);
+                const to = Math.max(first.start + first.duration, last.start + last.duration);
+                const symbols = [...lookup[index].values()].flat().filter(symbol => {
+                    const time = times.get(symbol);
+                    return symbol.dur && symbol.istart !== undefined && time !== undefined && time >= from && time < to;
+                }).sort((a, b) => times.get(a)! - times.get(b)!);
+                if (symbols.length) return { start: symbols[0].istart!, end: symbols.at(-1)!.istart! };
+            }
+            return undefined;
+        },
         symbolFor(symbol) { return displaySymbols.get(symbol); },
         prepareDisplay(model, voices, index) {
             const owners = voiceOwners(voices);

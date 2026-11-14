@@ -40,7 +40,7 @@ export class PersonalControls {
     private save(action: 'file' | 'reset' | 'defaults', choices?: FileChoices): void {
         if (!this.message || this.pending) return;
         try {
-            if (choices) validateChoices(choices);
+            if (choices) validateChoices(choices, action !== 'defaults');
             this.focusIndex = Array.from(document.querySelectorAll(controlSelector)).indexOf(document.activeElement!);
             this.pending = true;
             document.getElementById('preference-status')!.textContent = 'Saving personal preferences...';
@@ -284,6 +284,22 @@ export class PersonalControls {
                 };
             });
             panel.append(this.label('Chords ', chords));
+            if (operation === 'display' && chords.checked && plan.selections.every(selection => !selection.display.ids.length)) {
+                const source = element('select');
+                source.id = 'chord-source';
+                source.append(new Option('First voice', ''));
+                const voices = new Map(plan.inventories.flatMap(tune => tune.voices.map(voice => [voice.id, voice] as const)));
+                for (const voice of voices.values()) source.append(new Option(`${voice.name || voice.shortName || voice.id} (${voice.id})`, voice.id));
+                source.value = message.fileChoices.chordSourceVoiceId ?? '';
+                source.setAttribute('aria-label', 'Chord source voice');
+                source.onchange = () => this.edit(choices => {
+                    if (source.value) choices.chordSourceVoiceId = source.value;
+                    else delete choices.chordSourceVoiceId;
+                });
+                const sourceLabel = this.label('Chord source ', source);
+                sourceLabel.className = 'chord-source-control';
+                panel.append(sourceLabel);
+            }
             const toggle = document.getElementById(`${operation}-toggle`)!;
             const summary = [...selectedNames].join(', ') || 'None';
             toggle.textContent = `${operation === 'display' ? 'Display' : 'Playback'}: ${summary}`;
@@ -304,6 +320,7 @@ export class PersonalControls {
                 display: message.defaultChoices.display,
                 playback: message.defaultChoices.playback,
                 notation: defaultsNotation,
+                chordGrid: message.defaultChoices.chordGrid,
                 [operation]: { hideVoicesMatching: pattern.value.trim(), chords: defaultChords.checked }
             })));
             toolbar.append(defaults);
@@ -317,9 +334,39 @@ export class PersonalControls {
             this.save('defaults', {
                 display: message.defaultChoices.display,
                 playback: message.defaultChoices.playback,
-                notation
+                notation,
+                chordGrid: message.defaultChoices.chordGrid
             });
         }));
+        const gridDefaults = element('details');
+        gridDefaults.append(element('summary', 'Chord grid defaults'));
+        const layout = element('select');
+        layout.id = 'chord-grid-layout';
+        layout.append(new Option('ABC source lines', 'source'), new Option('Compact automatic wrap', 'compact'));
+        layout.value = message.defaultChoices.chordGrid.layout;
+        gridDefaults.append(this.label('Layout ', layout));
+        const repeats = element('input');
+        repeats.type = 'checkbox';
+        repeats.id = 'chord-grid-repeats';
+        repeats.checked = message.defaultChoices.chordGrid.repeatMeasures;
+        gridDefaults.append(this.label('Replace repeated measures with % ', repeats));
+        const instructions = element('input');
+        instructions.type = 'checkbox';
+        instructions.id = 'chord-grid-instructions';
+        instructions.checked = message.defaultChoices.chordGrid.showTextInstructions;
+        gridDefaults.append(this.label('Show text instructions (a tempo, rall., etc.) ', instructions));
+        gridDefaults.append(element('small', 'Applies to chord-only grids. A % repeats the previous complete harmonic measure; source voice is saved separately per file.'));
+        gridDefaults.append(this.button('Save grid defaults', () => this.save('defaults', {
+            display: message.defaultChoices.display,
+            playback: message.defaultChoices.playback,
+            notation: defaultsNotation,
+            chordGrid: {
+                layout: layout.value === 'compact' ? 'compact' : 'source',
+                repeatMeasures: repeats.checked,
+                showTextInstructions: instructions.checked
+            }
+        })));
+        toolbar.append(gridDefaults);
         toolbar.append(element('small', 'Instrument keys change notation only. Set file and per-voice keys in the header and Display menu. Transposition changes notation and sound; set it to 0 to reset.'));
         root.append(toolbar);
         root.append(element('p', `Sounding keys: ${plan.inventories.map(tune => `${tune.title}: ${tune.key}`).join('; ')}`));

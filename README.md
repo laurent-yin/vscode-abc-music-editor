@@ -48,6 +48,89 @@ chord-hidden staves are selected, the preview shows the chords above a selected
 staff instead. Labels are deduplicated per notation transposition, not assigned
 to a hidden chord position. Source chord visibility and playback are unchanged.
 
+### Chord-only grids
+
+In **Display**, uncheck every voice and leave **Chords** checked to show a
+compact chord grid instead of empty staves. Re-enable a voice to return to the
+normal score. Unchecking Chords as well hides the music entirely.
+
+The **Chord source** dropdown is in the **Display** menu, only when Chords is
+the only selected display item; it never occupies the header. Its default is the first
+declared voice, even if another voice contains chords. An explicit choice is
+saved per file. A voice with no chords shows a message rather than silently
+using another harmony. In tunebooks, a saved source missing from a particular
+tune also shows a message. Removed file-wide source IDs reset with a warning.
+The grid follows the source voice's instrument key (inheriting the file/default)
+and the song transposition. Its source choice does **not** change the generated
+audio accompaniment or stop ongoing playback.
+
+In the **gear → Chord grid defaults** section:
+
+- **ABC source lines** (default) keeps the source voice's musical line breaks.
+  Long lines scale to fit the preview width without horizontal scrolling.
+- **Compact automatic wrap** packs measures into the available width and
+  reflows on resize, keeping structural boundaries.
+- **Replace repeated measures with %** (enabled by default) replaces an entire
+  measure with the same harmonic rhythm as its predecessor. It never replaces
+  individual repeated chord labels or removes annotations. Section/repeat and
+  alternative-ending boundaries restate the harmony.
+- **Show text instructions (a tempo, rall., etc.)** is disabled by default.
+  Enable it to retain authored performance text in grids. This is a general
+  preference, not a per-file override. Fermatas and note ornaments remain hidden.
+
+These are general preferences only, not per-file controls in the main toolbar.
+The entire chord-only page, including titles and all tunes, scales to the
+space below the toolbar without horizontal or vertical scrollbars or clipping.
+Very long grids therefore use smaller text; source-line groups are preserved.
+Chord labels use bundled FreeSerif for a compact, engraved appearance, with one
+shared page scale rather than separate line-by-line scaling. All roots have
+the same size; qualities and extensions are raised at 75% of that size, while
+slash basses sit slightly lower. For example, `Bm7b5` displays as B with
+`m7(♭5)` raised, and `D/F#` uses a lowered slash and F♯ bass. This is display-only:
+authored chord labels, transposition, repeated-measure comparisons and audio
+remain unchanged. Unrecognized labels such as `N.C.` stay literal.
+Chord widths are measured in the loaded font before layout, including extensions
+and basses, so complex labels remain separated in narrow views. The font is
+packaged locally and works offline; it does not depend on device-installed fonts.
+FreeSerif is distributed under GPL-3-or-later with the Special Font Exception;
+its notices, license and rebuild instructions are in
+[lib/FreeSerif-NOTICE.txt](lib/FreeSerif-NOTICE.txt), with the corresponding
+upstream source archive included under `vendor/`.
+Grids retain measure/repeat bars, parts, endings, meter changes and navigation
+marks. Performance text is optional; fermatas are omitted. Chords within a measure
+keep their rhythmic positions. Incomplete opening measures (pickups) at the start
+of each part are omitted entirely, without leaving empty cells. Their part labels,
+instructions and repeat starts move to the next visible measure. Other incomplete
+measures, such as a part's ending, retain their chords. This never changes the
+source or full-tune playback.
+Click/drag cells to select complete measures for playback; `%` cells retain
+their musical intervals. Playback highlights the current measure.
+An internal measure of an authored multi-measure rest may have no standalone
+playback event; its tooltip and preview notices explain when full-tune playback
+is needed instead.
+
+The grid uses abc2svg's parsed model, not an ABC text parser; bundled native
+`grid` modules remain unchanged. Note ornaments and internal decoration names
+(such as `uppermordent`) are omitted, not printed in brackets. Authored text
+indications such as `a tempo` are shown only when enabled; structural navigation
+marks remain visible.
+
+Global JSON settings are `"chordGrid": {"layout": "source",
+"repeatMeasures": true, "showTextInstructions": false}` under `defaults`;
+use `"compact"` for automatic wrap.
+The file-only source override is `"chordSourceVoiceId": "melody"`.
+
+The extension currently consumes the included `vendor/abctools-0.2.5.tgz`
+package so this feature builds without publishing the shared-library changes
+or depending on an absolute local checkout. To refresh it after changes in
+the adjacent abctools checkout, run its tests, then `npm pack ../abctools
+--pack-destination vendor` and reinstall the resulting archive. Browser
+regressions run with `npm run test:grid-browser` after `npx playwright install
+chromium`; an existing Chrome executable can instead be selected with
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`.
+
+### Other preview preferences
+
 In the gear panel, set **By default, hide voices matching** for Display and
 **By default, mute voices matching** for Playback. Separate multiple patterns
 with `;`, for example `*bass*; *counterpoint*`. A match against any pattern

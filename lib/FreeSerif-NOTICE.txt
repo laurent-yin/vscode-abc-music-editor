@@ -1,0 +1,29 @@
+GNU FreeFont / FreeSerif
+======================
+
+FreeSerif-chords.woff2 is a subset of GNU FreeSerif, Copyright 2002-2012
+GNU FreeFont contributors, released under GPL version 3 or later with the
+Special Font Exception. That exception is retained for this subset.
+
+The only changes are glyph subsetting and WOFF2 compression. The font outlines
+are unchanged. See FreeSerif-copyright.txt and FreeSerif-GPL-3.txt for the license.
+The exception does not change the license of the extension's own code.
+
+Upstream: https://www.gnu.org/software/freefont/
+Corresponding source: vendor/freefont-src-20120503.tar.gz in this distribution,
+also available at https://ftp.gnu.org/gnu/freefont/freefont-src-20120503.tar.gz
+The upstream archive includes the FontForge SFD sources and build instructions.
+
+Rebuilding the webfont
+---------------------
+
+Starting with the regular FreeSerif.ttf from GNU FreeFont 20120503 (the Debian
+fonts-freefont-ttf package provides this font), use FontTools with Brotli:
+
+python3 -m fontTools.subset FreeSerif.ttf \
+  --output-file=lib/FreeSerif-chords.woff2 --flavor=woff2 \
+  --unicodes='U+0000-024F,U+2000-206F,U+2100-22FF,U+266D-266F,U+1D12A-1D12B' \
+  --name-IDs='*' --name-languages='*' --layout-features='*'
+
+The subset includes Latin letters, accidentals and common chord symbols.
+Other authored characters can use the browser's fallback font.

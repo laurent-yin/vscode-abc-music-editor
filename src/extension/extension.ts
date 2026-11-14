@@ -185,9 +185,7 @@ async function savePreferences(message: PreferenceMessage): Promise<void> {
         } else if (message.action === 'file') {
             files[resourceKey] = tools.validateChoices(message.choices);
         } else if (message.action === 'defaults') {
-            const choices = tools.validateChoices(message.choices);
-            const { transposition: _transposition, tempo: _tempo, ...personal } = choices;
-            value.defaults = personal;
+            value.defaults = tools.validateChoices(message.choices, false);
         } else {
             throw new Error('Unknown preference action');
         }

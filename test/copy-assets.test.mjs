@@ -11,6 +11,7 @@ test('build preserves every bundled library and webview asset byte for byte', as
         ...library,
         ['node_modules/lz-string/libs/lz-string.min.js', 'out/lib/lz-string.min.js'],
         ['node_modules/abctools/dist/preferences.js', 'out/lib/preferences.js'],
+        ['node_modules/abctools/dist/chordGrid.js', 'out/lib/chordGrid.js'],
         ['src/webview/webview.html', 'out/webview/webview.html'],
         ['src/webview/package.json', 'out/webview/package.json']
     ];

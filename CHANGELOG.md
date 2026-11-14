@@ -21,4 +21,20 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+- Chord-only Display now shows a compact chord grid with a saved source-voice
+  picker, inherited instrument notation and song transposition.
+- General preferences offer source-line/automatic-wrap layouts and optional
+  whole-measure `%` repetition, enabled by default. Grids preserve structural
+  marks, selection playback and live playback during display changes.
+- Chord source is confined to the Display menu when only Chords is selected.
+  Chord-only grids fit the available width and height without scrollbars.
+- Grid chords use a uniform font/size and shared page scaling. Internal ornament
+  names such as `[uppermordent]` are no longer shown; authored tempo text remains.
+- Chord grids use bundled FreeSerif, with compact raised extensions, musical
+  accidentals and lowered slash basses. Roots keep a consistent size, and layout
+  measures the complete composed labels before wrapping. Normal scores and audio
+  are unchanged.
+- General grid preferences can show authored text instructions (hidden by default).
+  Fermatas and each part's incomplete pickup are omitted. Part labels and repeat
+  starts are retained on the following measure, without changing audio playback.
 - Initial release

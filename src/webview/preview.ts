@@ -4,6 +4,7 @@ import { canRetainPlayback, installVoiceMixer, VoiceMixer } from './playback.js'
 import type { PreviewPlan, MusicVoice, MusicSymbol, Model } from './renderer.js';
 import type { RenderMessage } from '../shared/protocol.js';
 import { refreshFileVoices } from 'abctools/preferences';
+import { fitChordGridPage, loadChordGridFont, mountChordGrid } from './chordGridView.js';
 
 /**
  * This file handles the conversion of ABC notation to SVG graphics in the webview
@@ -171,6 +172,14 @@ let playbackModel: Model | undefined;
 let displayTuneIndex = 0;
 let playerGeneration = 0;
 let voiceMixer: VoiceMixer | undefined;
+let disposeGrids: (() => void)[] = [];
+let refreshedChordSource: { documentId: string; id: string } | undefined;
+
+function clearGrids(): void {
+    for (const dispose of disposeGrids) dispose();
+    disposeGrids = [];
+    document.body.classList.remove('grid-only-preview');
+}
 
 function createPlayer(): AbcPlay {
     const generation = ++playerGeneration;
@@ -269,6 +278,7 @@ function stopForChange(): void {
     voiceMixer?.clear();
     play.playing = false;
     play.noteToResumeTo = 0;
+    highlightGridNote();
     play.si = play.ei = null;
     setPlayPauseIcon(true);
 }
@@ -279,7 +289,9 @@ async function renderPersonalPreview(message: RenderMessage): Promise<void> {
     const redraw = !retainedAudio
         || JSON.stringify(currentMessage?.preferences.display) !== JSON.stringify(message.preferences.display)
         || JSON.stringify(currentMessage?.preferences.notation) !== JSON.stringify(message.preferences.notation)
-        || currentMessage?.preferences.transposition.semitones !== message.preferences.transposition.semitones;
+        || currentMessage?.preferences.transposition.semitones !== message.preferences.transposition.semitones
+        || currentMessage?.preferences.chordSourceVoiceId !== message.preferences.chordSourceVoiceId
+        || JSON.stringify(currentMessage?.preferences.chordGrid) !== JSON.stringify(message.preferences.chordGrid);
     if (!retainedAudio) {
         stopForChange();
         playbackModel = undefined;
@@ -320,12 +332,17 @@ async function renderPersonalPreview(message: RenderMessage): Promise<void> {
         }
         const refreshed = refreshFileVoices(fileChoices, defaultChoices, inventory.flatMap(tune => tune.voices));
         if (JSON.stringify(refreshed) !== JSON.stringify(message.fileChoices)) {
+            if (fileChoices.chordSourceVoiceId && !refreshed.chordSourceVoiceId) refreshedChordSource = { documentId: message.documentId, id: fileChoices.chordSourceVoiceId };
             personalControls.render(message, { inventories: inventory, selections, notices: [] });
             personalControls.refresh(refreshed);
             return;
         }
         personalControls.render(message, { inventories: inventory, selections, notices: [] });
         const plan = createPlan(message.content, message.preferences, original, selections, retainedAudio);
+        if (redraw && plan.grids?.some(grid => grid && !grid.message)) {
+            await loadChordGridFont();
+            if (generation !== renderGeneration) return;
+        }
         previewPlan = plan;
         playbackModel = plan.audio;
         currentMessage = message;
@@ -339,6 +356,12 @@ async function renderPersonalPreview(message: RenderMessage): Promise<void> {
         currentAbcContent = message.content;
         if (redraw) renderAbcContent(plan.content, undefined, !!retainedAudio);
         personalControls.render(message, plan, plan.inventories[0]?.key);
+        if (refreshedChordSource?.documentId === message.documentId) {
+            status.textContent = `Chord source "${refreshedChordSource.id}" no longer exists. The saved source was reset to the first voice; choose another source if needed.`;
+            status.className = 'warning';
+            status.hidden = false;
+        }
+        refreshedChordSource = undefined;
     } catch (error) {
         if (generation === renderGeneration) {
             stopForChange();
@@ -384,8 +407,13 @@ async function renderPersonalPreview(message: RenderMessage): Promise<void> {
 
 function renderAbcContent(abcContent: string, recoveryDiagnostics?: string[], preserveSelection = false): void {
         const div = document.getElementById('sheet') as HTMLDivElement;
+        clearGrids();
+        const gridOnly = !recoveryDiagnostics && !!previewPlan?.grids?.some(Boolean)
+            && !previewPlan.selections.some(selection => selection.display.ids.length);
+        document.body.classList.toggle('grid-only-preview', gridOnly);
         div.innerHTML = '';
         abc_images = ''; // Reset accumulated SVG content
+        const insertedGrids = new Set<number>();
 
         if (abc2svg) {            
             // Configure the user object with callbacks that abc2svg will use during rendering
@@ -400,6 +428,10 @@ function renderAbcContent(abcContent: string, recoveryDiagnostics?: string[], pr
                 // These snippets are accumulated in abc_images and later inserted into the DOM
                 img_out: (s: string) => {
                     if (recoveryDiagnostics || previewPlan?.selections[displayTuneIndex]?.display.ids.length) abc_images += s;
+                    else if (previewPlan?.grids?.[displayTuneIndex] && !insertedGrids.has(displayTuneIndex)) {
+                        abc_images += `<section data-grid-index="${displayTuneIndex}"></section>`;
+                        insertedGrids.add(displayTuneIndex);
+                    }
                 },
                 
                 // Set SVG image size to be responsive
@@ -444,7 +476,7 @@ function renderAbcContent(abcContent: string, recoveryDiagnostics?: string[], pr
                 // Check if the ABC content has both %%pageheight and %%pagewidth defined and capture their values
                 const pageHeightMatch = abcContent.match(/\n%%pageheight\s+(\d+)/);
                 const pageWidthMatch = abcContent.match(/\n%%pagewidth\s+(\d+)/);
-                if (pageHeightMatch && pageWidthMatch) {
+                if (pageHeightMatch && pageWidthMatch && !gridOnly) {
                     const pageHeight = parseInt(pageHeightMatch[1], 10);
                     const pageWidth = parseInt(pageWidthMatch[1], 10);
 
@@ -495,6 +527,17 @@ function renderAbcContent(abcContent: string, recoveryDiagnostics?: string[], pr
                 // Insert all the collected SVG content into the DOM
                 console.log('inserting SVG content into the DOM, length:', abc_images.length);
                 div.innerHTML = abc_images;
+                div.querySelectorAll<HTMLElement>('[data-grid-index]').forEach(host => {
+                    const grid = previewPlan?.grids?.[Number(host.dataset.gridIndex)];
+                    if (grid && currentMessage) disposeGrids.push(mountChordGrid(host, grid, currentMessage.preferences.chordGrid, () => {
+                        selectionManager.update();
+                        highlightGridNote(play.noteToResumeTo);
+                    }));
+                });
+                if (gridOnly) disposeGrids.push(fitChordGridPage(div, () => {
+                    selectionManager.update();
+                    highlightGridNote(play.noteToResumeTo);
+                }));
                 if (preserveSelection) selectionManager.update();
                 else selectionManager.clear();
                 
@@ -1137,8 +1180,9 @@ function play_tune(what: number): void {
         selx[0] = minIdx;
         selx[1] = maxIdx;
         
-        si = get_se(minIdx);
-        ei = get_ee(maxIdx);
+        const gridRange = previewPlan.gridSelection?.(selectionManager.startIdx, selectionManager.endIdx);
+        si = get_se(gridRange?.start ?? minIdx);
+        ei = get_ee(gridRange?.end ?? maxIdx);
         what = 1; // Always use selection mode if there's an active selection
     } else if (selx[0] && selx[1]) {
         si = get_se(selx[0]);
@@ -1185,9 +1229,15 @@ function play_tune(what: number): void {
 
 function playNoteCallback(i: any) {
     play.noteToResumeTo = play.stopRequested ? 0 : i;
+    highlightGridNote(play.noteToResumeTo);
     console.log('updated noteToResumeTo');
 }
 
+function highlightGridNote(index?: number): void {
+    document.querySelectorAll('.chord-grid .abcr').forEach(marker => {
+        marker.classList.toggle('grid-playing', !!index && marker.classList.contains(`_${index}_`));
+    });
+}
 /**
  * Set or clear a selection highlight
  * @param idx Selection index (0=start, 1=end)
@@ -1217,6 +1267,7 @@ function endplay(repv?: number): void {
     }
     
     setPlayPauseIcon(true);
+    highlightGridNote();
     play.playing = false;
     if (!play.pauseRequested) {
         // If we reached the end, reset the resume point

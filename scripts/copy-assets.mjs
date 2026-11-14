@@ -7,7 +7,7 @@ const library = (await readdir(path.join(root, 'lib'), { withFileTypes: true }))
     .filter(entry => entry.isFile() && entry.name.includes('.'))
     .map(entry => `lib/${entry.name}`);
 const groups = [
-    { destination: 'out/lib', sources: [...library, 'node_modules/lz-string/libs/lz-string.min.js', 'node_modules/abctools/dist/preferences.js'] },
+    { destination: 'out/lib', sources: [...library, 'node_modules/lz-string/libs/lz-string.min.js', 'node_modules/abctools/dist/preferences.js', 'node_modules/abctools/dist/chordGrid.js'] },
     { destination: 'out/webview', sources: ['src/webview/webview.html', 'src/webview/package.json'] }
 ];
 for (const { destination, sources } of groups) {

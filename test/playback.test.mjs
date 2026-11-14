@@ -47,6 +47,8 @@ test('only compatible preferences retain the current canonical playback', () => 
     next.preferences.tempo = 60;
     next.preferences.notation.instrumentKey = 'Bb';
     next.preferences.transposition.semitones = 2;
+    next.preferences.chordSourceVoiceId = 'low';
+    next.preferences.chordGrid = { layout: 'compact', repeatMeasures: false };
     assert.equal(canRetainPlayback(message, next, {}), true);
     for (const change of [
         { content: message.content + 'E F |' }, { documentId: 'other.abc' }, { resourceKey: 'other.abc' }
