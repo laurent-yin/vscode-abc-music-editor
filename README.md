@@ -24,6 +24,8 @@ Clear, colorful highlighting for ABC notation.
 
 Listen with live tempo and voice controls, and subtle measure tracking.
 
+![Playback controls](resources/readme/playback.png)
+
 ### 🔍 Selection-Based Playback
 
 Click and drag across notes or measures to play just that passage.
@@ -33,6 +35,8 @@ Click and drag across notes or measures to play just that passage.
 ### Chord Grids
 
 Switch to a compact chord-only view with optional repeated-measure symbols.
+
+![Chord grid](resources/readme/chordgrid.png)
 
 ### Personal Preferences
 

@@ -4,7 +4,7 @@ All notable changes to the "vscode-abc-music-editor" extension will be documente
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
+## [0.4.12] - 2026-11-14
 
 ### Added
 
@@ -16,6 +16,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Changed
 
+- Shorter Marketplace description and README with refreshed preview, playback
+  and chord grid screenshots; detailed guides are now under `docs/`.
 - Score and grid chords use upright FreeSerif Bold for readability at small
   sizes. Regular FreeSerif and both FreeSans Bold variants remain bundled for
   future font choices.
