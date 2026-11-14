@@ -2,7 +2,7 @@
 	"name": "abc-to-svg",
 	"displayName": "ABC Notation Support",
 	"description": "ABC sheet music, chord grids and playback in VS Code.",
-	"version": "0.4.12",
+	"version": "0.4.13",
 	"engines": {
 		"vscode": "^1.99.0"
 	},
@@ -18,7 +18,8 @@
 	},
 	"activationEvents": [
 		"onLanguage:abc",
-		"onFileSystem:abc"
+		"onFileSystem:abc",
+		"onWebviewPanel:musicSheet"
 	],
 	"publisher": "laurent-yin",
 	"main": "./out/extension/extension.js",

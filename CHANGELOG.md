@@ -4,6 +4,14 @@ All notable changes to the "vscode-abc-music-editor" extension will be documente
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.4.13] - 2026-11-14
+
+### Fixed
+
+- Restore open ABC previews in their editor groups when reopening a workspace
+  or reloading VS Code. Reload the source and saved preferences without restarting
+  playback; report unavailable source files explicitly.
+
 ## [0.4.12] - 2026-11-14
 
 ### Added

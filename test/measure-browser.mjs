@@ -35,6 +35,8 @@ try {
     });
     await page.goto(url);
     await page.waitForFunction(() => window.testPlaybackCallbacks && document.querySelectorAll('[data-measure-highlight]').length === 2);
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem('abcPreviewState'))),
+        { documentId: 'fixture.abc' }, 'the webview saves its source for VS Code session restoration');
     const markers = await page.locator('[data-playback-measure]').evaluateAll(nodes => nodes.map(node => ({
         key: node.dataset.playbackMeasure,
         source: Number(node.getAttribute('class').match(/_(\d+)_/)[1])
@@ -94,6 +96,8 @@ try {
     await page.locator('#stop-btn').click();
     await page.reload();
     await page.waitForFunction(() => document.querySelector('[data-measure-highlight]'));
+    assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem('abcPreviewState'))),
+        { documentId: 'fixture.abc' }, 'restoration state survives a webview reload');
     const saved = await page.evaluate(async () => (await (await fetch('/message')).json()));
     assert.equal(saved.preferences.highlightCurrentMeasure, false, 'option survives disk round trip and reload');
     await page.locator('#preferences-toggle').click();

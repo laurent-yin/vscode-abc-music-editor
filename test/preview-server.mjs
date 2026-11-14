@@ -60,7 +60,8 @@ const server = http.createServer(async (request, response) => {
             html = html.replaceAll('__BASE_URI__', '');
             html = html.replace('<head>', `<head><script>
                 window.acquireVsCodeApi = () => ({
-                    getState() {}, setState() {},
+                    getState() { return JSON.parse(sessionStorage.getItem('abcPreviewState') ?? 'null'); },
+                    setState(state) { sessionStorage.setItem('abcPreviewState', JSON.stringify(state)); },
                     async postMessage(message) {
                         if (!['ready', 'preferences', 'reloadPreferences'].includes(message.command)) return;
                         try {

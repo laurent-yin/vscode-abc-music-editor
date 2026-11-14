@@ -19,8 +19,8 @@ import { highlightMeasure, mountMeasureHighlights } from './measureHighlight.js'
 // Define interfaces for the VS Code API and abc2svg
 declare function acquireVsCodeApi(): {
     postMessage: (message: any) => void;
-    getState: () => any;
-    setState: (state: any) => void;
+    getState: () => unknown;
+    setState: (state: { documentId: string }) => void;
 };
 
 // Define interfaces for abc2svg
@@ -267,7 +267,10 @@ abc2svg.abc_end = function() {}	// accept page formatting
 
 // Process messages received from the extension
 window.addEventListener('message', event => {
-    if (event.data.command === 'render') void renderPersonalPreview(event.data);
+    if (event.data.command === 'render') {
+        vscode.setState({ documentId: event.data.documentId });
+        void renderPersonalPreview(event.data);
+    }
     else if (event.data.command === 'preferenceError') {
         renderGeneration++;
         personalControls.error(event.data.message);

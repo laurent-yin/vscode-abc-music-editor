@@ -4,6 +4,10 @@
 
 Open an `.abc` file and click the note icon to preview it. The preview updates
 as you edit. Click a note and drag to another note to select a passage for playback.
+Open previews are restored in their editor group when you reopen the same
+VS Code workspace or reload the window. The source file and its saved personal
+preferences are reloaded; playback does not restart automatically. If the source
+file is no longer available, an error is shown and the preview is closed.
 
 ## Personal preview preferences
 

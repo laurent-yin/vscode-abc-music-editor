@@ -37,6 +37,20 @@ export function activate(context: vscode.ExtensionContext) {
 		/* Show the music score on a separate webview panel */
 		let showMusicCommand = vscode.commands.registerCommand('vscode-abc-music-editor.showMusicsheet', () => showMusicPreview(context));
 		context.subscriptions.push(showMusicCommand);
+        context.subscriptions.push(vscode.window.registerWebviewPanelSerializer('musicSheet', {
+            async deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, state: unknown) {
+                try {
+                    if (!state || typeof state !== 'object' || !('documentId' in state) || typeof state.documentId !== 'string') {
+                        throw new Error('Cannot restore this ABC preview: its source file was not saved. Open the ABC file and preview it again.');
+                    }
+                    const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(state.documentId));
+                    initializeMusicPreview(context, webviewPanel, document);
+                } catch (error) {
+                    reportPreviewError(error);
+                    webviewPanel.dispose();
+                }
+            }
+        }));
         context.subscriptions.push(vscode.commands.registerCommand('vscode-abc-music-editor.choosePreferences', async () => {
             const document = previewDocument ?? vscode.window.activeTextEditor?.document;
             if (!document || document.languageId !== 'abc') return;
@@ -206,28 +220,35 @@ function showMusicPreview(context: vscode.ExtensionContext) {
         void postAbcToWebview(editor.document);
         return;
     }
-    previewDocument = editor.document;
-    ready = false;
-
 	// webview panel for live preview
-	panel = vscode.window.createWebviewPanel('musicSheet', 'ABC Preview', vscode.ViewColumn.Beside, {
+	const webviewPanel = vscode.window.createWebviewPanel('musicSheet', 'ABC Preview', vscode.ViewColumn.Beside, {
 		enableScripts: true,
-		retainContextWhenHidden: true,
+		retainContextWhenHidden: true
+	});
+    initializeMusicPreview(context, webviewPanel, editor.document);
+}
+
+function initializeMusicPreview(context: vscode.ExtensionContext, webviewPanel: vscode.WebviewPanel, document: vscode.TextDocument): void {
+    panel = webviewPanel;
+    previewDocument = document;
+    ready = false;
+    revision++;
+    store = undefined;
+    snapshot = undefined;
+    panel.title = `ABC Preview: ${path.basename(document.fileName)}`;
+    panel.webview.options = {
+        enableScripts: true,
 		localResourceRoots: [
 			vscode.Uri.file(path.join(context.extensionPath, 'lib')),
 			vscode.Uri.file(path.join(context.extensionPath, 'out', 'lib')),
 			vscode.Uri.file(path.join(context.extensionPath, 'out', 'webview'))
 		]
-	});
+	};
 	
 	panel.iconPath = {
 		light: vscode.Uri.file(path.join(context.extensionPath, 'resources', 'icons', 'light', 'quaver.svg')),
 		dark: vscode.Uri.file(path.join(context.extensionPath, 'resources', 'icons', 'dark', 'quaver.svg'))
 	};
-
-	const baseUri = panel?.webview?.asWebviewUri(vscode.Uri.joinPath(context.extensionUri));
-
-    panel.webview.html = getWebviewHtml(baseUri);
 
 	// handle messages from the webview
 	panel.webview.onDidReceiveMessage(message => {
@@ -263,10 +284,17 @@ function showMusicPreview(context: vscode.ExtensionContext) {
 	}, undefined, context.subscriptions);
 
 	panel.onDidDispose(() => {
+        if (panel !== webviewPanel) return;
 		panel = undefined;
+        previewDocument = undefined;
+        store = undefined;
+        snapshot = undefined;
         ready = false;
         revision++;
 	  });
+
+    const baseUri = panel.webview.asWebviewUri(context.extensionUri);
+    panel.webview.html = getWebviewHtml(baseUri);
 }
 
 function showDiagnostics(message: string, line: number, col: number) {
