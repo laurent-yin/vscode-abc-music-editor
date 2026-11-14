@@ -2,9 +2,12 @@ import { voiceNotation, resolveVoiceFilter } from 'abctools/preferences';
 import type { EffectiveChoices, FilterResult, VoiceDescriptor } from 'abctools/preferences';
 import { captureGridSnapshot, chordGridFromSnapshot, measureBoundaries } from './chordGridModel.js';
 import type { ChordGrid, GridSnapshot } from './chordGridModel.js';
+import { useScoreChordFont } from './chordTypography.js';
+import type { EngravedChordText } from './chordTypography.js';
 
 export interface MusicNote { midi?: number; noplay?: boolean | number; pit: number; acc?: number }
-export interface Chord { type: string; text: string; otext?: string; [key: string]: unknown }
+export interface MusicFont { name: string; size: number; weight?: number | string; style?: string; fid?: number; used?: boolean | number }
+export interface Chord { type: string; text: string | EngravedChordText; font: MusicFont; otext?: string; x?: number; [key: string]: unknown }
 export interface MusicSymbol {
     type: number; v: number; time: number; dur?: number; istart?: number; iend?: number;
     tempo?: number; tempo_str1?: string; tempo_str2?: string;
@@ -26,6 +29,11 @@ export interface Model {
     tosvg(id: string, content: string): void;
     tunes: Tune[];
     gch_tr1(text: string, interval: number): string;
+    use_font(font: MusicFont): void;
+    get_font(name: string): MusicFont;
+    set_font(font: MusicFont): void;
+    strwh(text: string): [number, number];
+    gch_build(symbol: MusicSymbol): void;
 }
 declare const abc2svg: {
     Abc: new (user: ModelUser) => Model;
@@ -45,6 +53,7 @@ export interface PreviewPlan {
     selections: Selections[];
     notices: string[];
     grids?: (ChordGrid | undefined)[];
+    needsChordFont?: boolean;
     gridSelection?(start: number, end: number): { start: number; end: number } | undefined;
     symbolFor(displaySymbol: MusicSymbol, tuneIndex: number): MusicSymbol | undefined;
     measureFor(symbol: MusicSymbol): string | undefined;
@@ -95,12 +104,14 @@ export function renderModel(model: Pick<Model, 'tosvg'>, id: string, content: st
     }
 }
 const gridSnapshots = new WeakMap<Model, GridSnapshot[]>();
+const defaultChordFonts = new WeakSet<MusicFont>();
 function parse(content: string): Model {
     const snapshots: GridSnapshot[] = [];
     const model = new abc2svg.Abc({
         errmsg(message) { throw new Error(message); },
         get_abcmodel(_first, voices, _names, info) { snapshots.push(captureGridSnapshot(voices, info)); }
     });
+    defaultChordFonts.add(model.get_font('gchord'));
     renderModel(model, 'abc', content);
     // abc2svg exposes tunes on a prototype replaced by each constructor.
     // Own the array before constructing the independent display instance.
@@ -336,8 +347,12 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
         return grid;
     });
     notices.push('Source navigation and source-position diagnostics are disabled: configuration, personal projections and fit2box do not yet provide a composed source map.');
+    const needsChordFont = grids.some(grid => grid && !grid.message)
+        || choices.display.chords !== false && selections.some(selection => selection.display.ids.length)
+        && audio.tunes.some(tune => tune[1].some(voice => [...symbols(voice)].some(symbol =>
+            symbol.a_gch?.some(chord => chord.type === 'g' && defaultChordFonts.has(chord.font)))));
     return {
-        content: displayContent, audio, playbackTransposition, inventories: inventory, selections, notices, grids,
+        content: displayContent, audio, playbackTransposition, inventories: inventory, selections, notices, grids, needsChordFont,
         ...measures,
         gridSelection(start, end) {
             for (const [index, grid] of grids.entries()) {
@@ -357,6 +372,19 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
         },
         symbolFor(symbol) { return displaySymbols.get(symbol); },
         prepareDisplay(model, voices, index) {
+            const fonts = new Map<MusicFont, MusicFont>();
+            const displayFont = (source: MusicFont): MusicFont => {
+                const cached = fonts.get(source);
+                if (cached) return cached;
+                // Register a display-local font; the source may already be marked used.
+                const font: MusicFont = Object.create(source);
+                font.fid = undefined;
+                font.used = false;
+                if (defaultChordFonts.has(source)) useScoreChordFont(model, font);
+                model.use_font(font);
+                fonts.set(source, font);
+                return font;
+            };
             const owners = voiceOwners(voices);
             const selectedVoices = voices.filter(voice => selections[index].display.ids.includes(owners.get(voice)?.id ?? voice.id));
             const occurrences = new Map<string, number>();
@@ -408,8 +436,9 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
                 }
                 target.symbol.a_gch = [...target.symbol.a_gch ?? [], ...source.chords.map(chord => ({
                     ...chord,
+                    font: displayFont(chord.font),
                     pos: target.position === abc2svg.C.SL_HIDDEN ? abc2svg.C.SL_ABOVE : target.position,
-                    text: model.gch_tr1(chord.text, (target.voice.tr_sco ?? 0) - (source.voice.tr_sco ?? 0))
+                    text: model.gch_tr1(String(chord.text), (target.voice.tr_sco ?? 0) - (source.voice.tr_sco ?? 0))
                 }))];
             }
         }

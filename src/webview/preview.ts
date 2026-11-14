@@ -1,7 +1,7 @@
 import { PersonalControls } from './preferences.js';
 import { sourceModel, inventories, filterSelections, createPlan, originalPlan, playbackVoices, renderModel } from './renderer.js';
 import { canRetainPlayback, installVoiceMixer, VoiceMixer } from './playback.js';
-import type { PreviewPlan, MusicVoice, MusicSymbol, Model } from './renderer.js';
+import type { PreviewPlan, MusicVoice, MusicSymbol, MusicFont, Model } from './renderer.js';
 import type { RenderMessage } from '../shared/protocol.js';
 import { refreshFileVoices } from 'abctools/preferences';
 import { fitChordGridPage, loadChordGridFont, mountChordGrid } from './chordGridView.js';
@@ -48,8 +48,9 @@ interface ABC2SVG {
     play_next: Parameters<typeof installVoiceMixer>[0]['play_next'];
 }
 
-interface AbcInstance {
+interface AbcInstance extends Pick<Model, 'get_font' | 'set_font' | 'strwh' | 'gch_build'> {
     gch_tr1(text: string, interval: number): string;
+    use_font(font: MusicFont): void;
     /**
      * Converts ABC notation to SVG
      * @param id Identifier for the tune
@@ -342,7 +343,7 @@ async function renderPersonalPreview(message: RenderMessage): Promise<void> {
         }
         personalControls.render(message, { inventories: inventory, selections, notices: [] });
         const plan = createPlan(message.content, message.preferences, original, selections, retainedAudio);
-        if (redraw && plan.grids?.some(grid => grid && !grid.message)) {
+        if (redraw && plan.needsChordFont) {
             await loadChordGridFont();
             if (generation !== renderGeneration) return;
         }
@@ -699,16 +700,7 @@ const selectionManager = {
         });
         this.selectedAreas = [];
         
-        // Reset selection state
-        const minIdx = Math.min(this.startIdx, this.endIdx);
-        const maxIdx = Math.max(this.startIdx, this.endIdx);
-          // Restore original appearance of all abcr elements in the selection range
-        for (let i = minIdx; i <= maxIdx; i++) {
-            const elements = document.getElementsByClassName('_' + i + '_');
-            for (let j = 0; j < elements.length; j++) {
-                (elements[j] as HTMLElement).classList.remove('selected');
-            }
-        }
+        document.querySelectorAll('.abcr.selected').forEach(element => element.classList.remove('selected'));
         
         // Reset selection state
         this.startIdx = 0;
@@ -746,17 +738,27 @@ const selectionManager = {
             element.classList.remove('selected');
         });
 
-        // Add 'selected' class to selected notes
-        for (let i = minIdx; i <= maxIdx; i++) {
-            const elements = document.getElementsByClassName('_' + i + '_');
-            for (let j = 0; j < elements.length; j++) {
-                (elements[j] as HTMLElement).classList.add('selected');
+        let firstNoteElement: SVGRectElement | null;
+        let lastNoteElement: SVGRectElement | null;
+        const gridMarkers = [...document.querySelectorAll<SVGRectElement>('[data-grid-ids]')];
+        const gridStart = gridMarkers.findIndex(marker => marker.classList.contains(`_${this.startIdx}_`));
+        const gridEnd = gridMarkers.findIndex(marker => marker.classList.contains(`_${this.endIdx}_`));
+        if (gridStart >= 0 && gridEnd >= 0) {
+            // A measure's IDs span multiple voices, whose source offsets may be interleaved.
+            const selected = gridMarkers.slice(Math.min(gridStart, gridEnd), Math.max(gridStart, gridEnd) + 1);
+            selected.forEach(marker => marker.classList.add('selected'));
+            firstNoteElement = selected[0];
+            lastNoteElement = selected[selected.length - 1];
+        } else {
+            for (let i = minIdx; i <= maxIdx; i++) {
+                const elements = document.getElementsByClassName('_' + i + '_');
+                for (let j = 0; j < elements.length; j++) {
+                    elements[j].classList.add('selected');
+                }
             }
+            firstNoteElement = document.querySelector<SVGRectElement>(`._${minIdx}_`);
+            lastNoteElement = document.querySelector<SVGRectElement>(`._${maxIdx}_`);
         }
-
-        // Find first and last selected notes
-        const firstNoteElement = document.querySelector(`._${minIdx}_`) as SVGRectElement;
-        const lastNoteElement = document.querySelector(`._${maxIdx}_`) as SVGRectElement;
 
         if (!firstNoteElement || !lastNoteElement) return;
 

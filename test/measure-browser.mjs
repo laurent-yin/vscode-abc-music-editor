@@ -161,8 +161,122 @@ try {
     await event(recoverySource);
     assert.equal(await page.locator('[data-measure-highlight].measure-playing').count(), 1);
     await page.locator('#stop-btn').click();
+    const fontFixture = '%%gchordfont Helvetica-BoldItalic 10\n%%musicspace 0\n%%staffscale 1.2\n%%fit2box\n'
+        + 'X:1\nT:Custom chord fonts\nM:2/4\nL:1/8\nV:lead name="Melody"\nV:low name="Counterpoint"\nK:C\n'
+        + '[V:lead] "C/G"CDEF | [I:gchordfont Times-Roman 8] "Fm7"GABc |\n"C/G"dcBA | "Fm7"GFED |]\n'
+        + '[V:low] C,4 | F,4 |\nC,4 | F,4 |]\n';
+    await page.evaluate(async content => {
+        await fetch('/message', { method: 'POST', body: JSON.stringify({ action: 'reset' }) });
+        const response = await fetch('/fixture', { method: 'POST', body: JSON.stringify({ content }) });
+        window.postMessage(await response.json(), location.origin);
+    }, fontFixture);
+    await page.waitForFunction(() => document.getElementById('sheet').textContent.includes('Custom chord fonts'));
+    const checkChordFonts = async () => {
+        const labels = await page.locator('#sheet svg text').evaluateAll(nodes => nodes
+            .filter(node => ['C/G', 'Fm7'].includes(node.textContent))
+            .map(node => {
+                const style = getComputedStyle(node);
+                const box = node.getBoundingClientRect();
+                const svg = node.ownerSVGElement.getBoundingClientRect();
+                return {
+                    text: node.textContent, size: style.fontSize, weight: style.fontWeight,
+                    style: style.fontStyle, family: style.fontFamily,
+                    contained: box.top >= svg.top - 1 && box.bottom <= svg.bottom + 1
+                        && box.left >= svg.left - 1 && box.right <= svg.right + 1
+                };
+            }));
+        assert.equal(labels.length, 4);
+        assert.deepEqual(labels.map(label => label.size), ['10px', '8px', '8px', '8px'],
+            'authored font sizes, including inline changes, are applied in the browser');
+        assert.equal(labels[0].weight, '700');
+        assert.equal(labels[0].style, 'italic');
+        assert.ok(labels.every(label => label.contained), 'chord labels are not clipped by their system SVG');
+    };
+    await checkChordFonts();
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await page.locator('#display-toggle').click();
+    await page.locator('#display-voices input[value=lead]').uncheck();
+    await page.waitForFunction(() => document.getElementById('display-toggle').textContent === 'Display: Counterpoint, Chords');
+    await page.keyboard.press('Escape');
+    await checkChordFonts();
+    const serifFixture = fontFixture.replace('%%gchordfont Helvetica-BoldItalic 10\n', '')
+        .replace('[I:gchordfont Times-Roman 8] ', '').replaceAll('C/G', 'Bbm7b5/F#').replaceAll('Fm7', 'Bb°');
+    await page.evaluate(async content => {
+        const response = await fetch('/fixture', { method: 'POST', body: JSON.stringify({ content }) });
+        window.postMessage(await response.json(), location.origin);
+    }, serifFixture);
+    await page.waitForFunction(() => document.querySelectorAll('.score-chord').length === 4);
+    const serif = await page.locator('.score-chord').evaluateAll(nodes => nodes.map(node => {
+        const label = node.parentElement;
+        const style = getComputedStyle(label);
+        const box = label.getBoundingClientRect();
+        const svg = node.ownerSVGElement.getBoundingClientRect();
+        return {
+            text: node.textContent, font: style.fontFamily, size: style.fontSize,
+            weight: style.fontWeight, style: style.fontStyle,
+            components: [...node.children].map(span => ({
+                role: span.classList[0], size: getComputedStyle(span).fontSize, dy: Number(span.getAttribute('dy'))
+            })),
+            accidentals: [...node.querySelectorAll('.chord-accidental')].map(span => ({
+                size: parseFloat(getComputedStyle(span).fontSize),
+                parentSize: parseFloat(getComputedStyle(span.parentElement).fontSize),
+                dx: Number(span.getAttribute('dx'))
+            })),
+            flatSpacing: [...node.querySelectorAll('tspan[letter-spacing]')].filter(span => span.textContent === '♭').map(span => {
+                const preceding = document.createRange();
+                preceding.selectNodeContents(label);
+                preceding.setEndBefore(span);
+                const index = preceding.toString().length;
+                const adjusted = label.getStartPositionOfChar(index + 1).x;
+                const spacing = span.getAttribute('letter-spacing');
+                span.setAttribute('letter-spacing', '0');
+                const unadjusted = label.getStartPositionOfChar(index + 1).x;
+                span.setAttribute('letter-spacing', spacing);
+                return unadjusted - adjusted;
+            }),
+            contained: box.top >= svg.top - 1 && box.bottom <= svg.bottom + 1
+                && box.left >= svg.left - 1 && box.right <= svg.right + 1
+        };
+    }));
+    assert.deepEqual(serif.map(label => label.text), ['B♭m7(♭5)/F♯', 'B♭°', 'B♭m7(♭5)/F♯', 'B♭°']);
+    assert.ok(serif.every(label => label.font === 'ABCGridChord' && label.size === '12px'
+        && label.weight === '700' && label.style === 'normal'));
+    assert.ok(serif.every(label => label.contained), 'raised extensions and lowered basses remain inside fitted system bounds');
+    assert.deepEqual(serif[0].components.map(part => [part.role, part.size]), [
+        ['score-chord-root', '12px'], ['score-chord-suffix', '9px'],
+        ['score-chord-slash', '9.75px'], ['score-chord-bass', '9.75px']
+    ]);
+    assert.ok(serif[0].components[1].dy < 0 && serif[0].components[2].dy > 0 && serif[0].components[3].dy > 0);
+    assert.ok(serif.every((label, index) => label.accidentals.length === (index % 2 ? 1 : 2) && label.accidentals.every(mark =>
+        Math.abs(mark.size / mark.parentSize - .8) < .001 && Math.abs(mark.dx / mark.parentSize + .05) < .001)),
+    'score root and bass accidentals are smaller and closer without shrinking the raised chord quality');
+    assert.ok(serif.every((label, index) => label.flatSpacing.length === (index % 2 ? 1 : 2)
+        && label.flatSpacing.every(reduction => reduction > .4)),
+    'the glyph after a flat moves closer in both flat-five extensions and diminished chords');
+    for (const [declaration, body, names, ids] of [
+        ['', 'C D | E F |]', ['Main voice'], ['1']],
+        ['V:solo\n', 'C D | E F |]', ['Main voice'], ['solo']],
+        ['V:solo name="Melody"\n', 'C D | E F |]', ['Melody'], ['solo']],
+        ['V:solo snm="Lead"\n', 'C D | E F |]', ['Lead'], ['solo']],
+        ['V:upper\nV:lower\n', '[V:upper] C D | E F |]\n[V:lower] C, D, | E, F, |]', ['upper', 'lower'], ['upper', 'lower']]
+    ]) {
+        await page.evaluate(async content => {
+            await fetch('/message', { method: 'POST', body: JSON.stringify({ action: 'reset' }) });
+            const response = await fetch('/fixture', { method: 'POST', body: JSON.stringify({ content }) });
+            window.postMessage(await response.json(), location.origin);
+        }, `X:1\nT:Voice labels\nM:2/4\nL:1/4\n${declaration}K:C\n${body}\n`);
+        await page.waitForFunction(expected => document.getElementById('display-toggle').textContent === `Display: ${expected}, Chords`,
+            names.join(', '));
+        for (const operation of ['display', 'playback']) {
+            assert.equal(await page.locator(`#${operation}-toggle`).textContent(), `${operation === 'display' ? 'Display' : 'Playback'}: ${names.join(', ')}, Chords`);
+            const labels = await page.locator(`#${operation}-voices .voice-row > label:first-child`).allTextContents();
+            assert.ok(labels.every((label, index) => label.trim() === `${names[index]}${names[index] !== ids[index] ? ` (${ids[index]})` : ''}`));
+            assert.deepEqual(await page.locator(`#${operation}-voices .voice-row input[type=checkbox]`).evaluateAll(inputs =>
+                inputs.map(input => input.value)), ids, 'friendly labels do not change voice selection IDs');
+        }
+    }
     assert.deepEqual(errors, []);
-    console.log('Measure backgrounds: timing, voices, repeats, pause/stop/end, live redraws, grids and persistent general settings passed.');
+    console.log('Measure backgrounds and score fonts: timing, voices, repeats, pause/stop/end, live redraws, grids, persistent settings and unclipped custom chords passed.');
 } finally {
     await browser?.close();
     server.kill('SIGTERM');

@@ -38,7 +38,9 @@ function render(plan) {
         }
     });
     renderModel(model, 'fixture', plan.content);
-    return { svg, models, musicSystems: (svg.match(/<svg\b[\s\S]*?<\/svg>/g) ?? []).filter(block => /class="slW"|href="#stdef/.test(block)).length };
+    const labels = [...svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)]
+        .map(match => match[1].replace(/<[^>]+>/g, ''));
+    return { svg, labels, models, musicSystems: (svg.match(/<svg\b[\s\S]*?<\/svg>/g) ?? []).filter(block => /class="slW"|href="#stdef/.test(block)).length };
 }
 function notes(voice) {
     const result = [];
@@ -169,8 +171,8 @@ test('mixed Bb/C notation preserves audio, keys and per-context slash chords', (
     const voices = rendered.models[0];
     assert.equal(voices.find(voice => voice.id === 'lead').key.k_sf, 2);
     assert.equal(voices.find(voice => voice.id === 'low').key.k_sf, 0);
-    assert.match(rendered.svg, />D\/A</);
-    assert.match(rendered.svg, />C\/G</);
+    assert.ok(rendered.labels.includes('D/A'));
+    assert.ok(rendered.labels.includes('C/G'));
     const tune = plan.audio.tunes[0];
     context.ToAudio().add(tune[0], tune[1], tune[3]);
     assert.deepEqual(notes(tune[1][0]).map(note => note.midi), [60, 62, 64, 65]);
@@ -189,9 +191,9 @@ test('positive/negative song shifts affect every voice independently of written 
 });
 test('single-voice view inherits hidden harmony; combined equal views deduplicate', () => {
     const solo = render(planFor({ display: { voiceIdFilter: ['low'] } }));
-    assert.match(solo.svg, />C\/G</);
+    assert.ok(solo.labels.includes('C/G'));
     const combined = render(planFor());
-    assert.equal((combined.svg.match(/>C\/G</g) ?? []).length, 1);
+    assert.equal(combined.labels.filter(label => label === 'C/G').length, 1);
     const conflicting = planFor({}, fixture.replace('[V:low] C,', '[V:low] "Dm" C,'));
     assert.throws(() => render(conflicting), /Different authored harmonies/);
 });
@@ -199,34 +201,96 @@ test('hidden melody chords do not consume the visible lower staff chord label', 
     const source = fixture.replace('V:lead name=', 'V:lead pos=\"gch hidden\" name=')
         .replace('[V:low] C,', '[V:low] \"C/G\" \"^Rhythm annotation\" C,');
     const both = render(planFor({}, source));
-    assert.equal((both.svg.match(/>C\/G</g) ?? []).length, 1);
+    assert.equal(both.labels.filter(label => label === 'C/G').length, 1);
     assert.equal(both.models[0].find(voice => voice.id === 'low').sym.a_gch.find(chord => chord.type === 'g').pos, context.abc2svg.C.SL_ABOVE);
     for (const id of ['lead', 'low']) {
         const plan = planFor({ display: { selectedVoiceIds: [id] } }, source);
-        assert.match(render(plan).svg, />C\/G</);
+        assert.ok(render(plan).labels.includes('C/G'));
         let authored = plan.audio.tunes[0][1].find(voice => voice.id === 'lead').sym;
         while (authored && !authored.a_gch?.some(chord => chord.type === 'g')) authored = authored.next;
         assert.equal(authored.a_gch.find(chord => chord.type === 'g').pos, context.abc2svg.C.SL_HIDDEN);
     }
     const mixed = render(planFor({ notation: { instrumentKey: 'C', voices: { lead: { instrumentKey: 'Bb' } } } }, source));
-    assert.match(mixed.svg, />D\/A</);
-    assert.match(mixed.svg, />C\/G</);
+    assert.ok(mixed.labels.includes('D/A'));
+    assert.ok(mixed.labels.includes('C/G'));
     assert.match(mixed.svg, /Rhythm annotation/);
     const hidden = render(planFor({ display: { chords: false } }, source));
-    assert.doesNotMatch(hidden.svg, />C\/G</);
+    assert.ok(!hidden.labels.includes('C/G'));
     assert.match(hidden.svg, /Rhythm annotation/);
 });
 test('chord placement preserves visible below-staff preferences', () => {
     const source = fixture.replace('V:lead name=', 'V:lead pos=\"gch hidden\" name=')
         .replace('V:low name=', 'V:low pos=\"gch below\" name=');
     const rendered = render(planFor({}, source));
-    assert.match(rendered.svg, />C\/G</);
+    assert.ok(rendered.labels.includes('C/G'));
     assert.equal(rendered.models[0].find(voice => voice.id === 'low').sym.a_gch.find(chord => chord.type === 'g').pos, context.abc2svg.C.SL_BELOW);
+});
+test('projected custom chord fonts have matching SVG styles, including fit2box and hidden source voices', () => {
+    const source = '%%gchordfont Helvetica-BoldItalic 10\n%%staffscale 1.2\n%%musicspace 0\n'
+        + fixture.replace('C D | E F', 'C D | [I:gchordfont Times-Roman 8] "F" E F');
+    for (const fitting of ['', '%%fit2box * *\n']) {
+        const plan = planFor({ display: { selectedVoiceIds: ['low'] } }, fitting + source);
+        const originalFonts = plan.audio.tunes[0][1].flatMap(voice => {
+            const result = [];
+            for (let symbol = voice.sym; symbol; symbol = symbol.next) {
+                for (const chord of symbol.a_gch ?? []) if (chord.type === 'g') {
+                    result.push([chord.font, chord.font.fid, chord.font.size, chord.font.name]);
+                }
+            }
+            return result;
+        });
+        for (let pass = 0; pass < 2; pass++) {
+            const rendered = render(plan);
+            for (const [label, size, style] of [['C/G', 10, /700 italic/], ['F', 8, /serif/]]) {
+                const match = rendered.svg.match(new RegExp(`<text class="([^"]+)"[^>]*>${label}</text>`));
+                assert.ok(match, `${label} is visible on the selected staff`);
+                const rule = rendered.svg.match(new RegExp(`\\.${match[1]}\\{([^}]+)\\}`));
+                assert.ok(rule, `${label} must reference a font defined in the displayed SVG`);
+                assert.match(rule[1], new RegExp(`${size}\\.0px`));
+                assert.match(rule[1], style);
+            }
+            for (const [font, fid, size, name] of originalFonts) {
+                assert.equal(font.fid, fid, 'display must not replace the canonical font ID');
+                assert.equal(font.size, size);
+                assert.equal(font.name, name);
+            }
+        }
+    }
+});
+test('default score chords share grid typography without changing canonical harmony or audio', () => {
+    const source = fixture.replace('C/G', 'Bm7b5/F#');
+    const plan = planFor({ display: { selectedVoiceIds: ['low'] } }, '%%fit2box\n' + source);
+    const sourceChord = plan.audio.tunes[0][1].flatMap(voice => {
+        const chords = [];
+        for (let symbol = voice.sym; symbol; symbol = symbol.next) chords.push(...symbol.a_gch ?? []);
+        return chords;
+    }).find(chord => chord.type === 'g');
+    const before = scheduled(plan);
+    const rendered = render(plan);
+    assert.equal(plan.needsChordFont, true);
+    assert.match(rendered.svg, /font:700 normal 12\.0px ABCGridChord/);
+    assert.ok(rendered.labels.includes('Bm7(♭5)/F♯'));
+    assert.match(rendered.svg, /class="score-chord-suffix" font-size="9" dy="-3\.750">m7\(<tspan[^>]+>♭<\/tspan>5\)/);
+    assert.match(rendered.svg, /class="score-chord-bass" font-size="9\.75"/);
+    assert.deepEqual(scheduled(plan), before, 'display formatting does not alter playback');
+    assert.equal(sourceChord.text, 'Bm7b5/F#');
+    const explicit = planFor({}, '%%gchordfont Helvetica 12\n' + source);
+    assert.equal(explicit.needsChordFont, false);
+    const custom = render(explicit);
+    assert.doesNotMatch(custom.svg, /score-chord-/);
+    assert.ok(custom.labels.includes('Bm7♭5/F♯'));
+    const literal = render(planFor({}, fixture.replace('C/G', 'N.C.')));
+    assert.ok(literal.labels.includes('N.C.'), 'unrecognized labels stay literal');
+    assert.doesNotMatch(literal.svg, /score-chord-/);
+    const mixed = render(planFor({}, source.replace('E F', '[I:gchordfont Helvetica-BoldItalic 10] "Dm7" E F')));
+    assert.ok(mixed.labels.includes('Bm7(♭5)/F♯'));
+    assert.match(mixed.svg, /<text class="[^"]+"[^>]*>Dm7<\/text>/,
+        'inline custom fonts disable the default typography only from that point onward');
 });
 test('display chord checkbox hides chord labels without changing canonical harmony or audio', () => {
     const plan = planFor({ display: { selectedVoiceIds: ['low'], chords: false } }, '%%MIDI gchordon\n' + fixture);
     const rendered = render(plan);
-    assert.doesNotMatch(rendered.svg, />C\/G</);
+    assert.ok(!rendered.labels.includes('C/G'));
     const tune = plan.audio.tunes[0];
     context.ToAudio().add(tune[0], tune[1], tune[3]);
     assert.ok(tune[1].find(voice => voice.id === '_chord'));
@@ -426,7 +490,7 @@ test('overlay branches follow parent voice playback and map back to canonical sy
 test('chords authored only in an overlay can be projected and muted with its parent', () => {
     const source = '%%MIDI gchordon\nX:1\nT:Overlay harmony fixture\nM:2/4\nL:1/4\nV:lead\nV:low\nK:C\n[V:lead] C D | E F |]\n[V:low] C, D, & \"C/G\" E, F, | G, A, & \"G7\" B, C |]\n';
     const plan = planFor({ display: { selectedVoiceIds: ['lead'] }, playback: { selectedVoiceIds: ['lead'] } }, source);
-    assert.match(render(plan).svg, />C\/G</);
+    assert.ok(render(plan).labels.includes('C/G'));
     const events = scheduled(plan, false);
     assert.ok(events.length);
     assert.ok(events.every(event => event.id === 'lead'));
@@ -447,8 +511,8 @@ test('static braces and brackets preserve grouping and collapse for a single sel
         }
         const mixed = planFor({ notation: { instrumentKey: 'C', voices: { lead: { instrumentKey: 'Bb' } } }, transposition: { semitones: 2 } }, source);
         const rendered = render(mixed);
-        assert.match(rendered.svg, />E\/B</);
-        assert.match(rendered.svg, />D\/A</);
+        assert.ok(rendered.labels.includes('E/B'));
+        assert.ok(rendered.labels.includes('D/A'));
         assert.equal(rendered.models[0].find(voice => voice.id === 'lead').key.k_sf, 4);
         assert.equal(rendered.models[0].find(voice => voice.id === 'low').key.k_sf, 2);
     }
@@ -579,7 +643,7 @@ test('Eb notation and its independent octave shift leave concert audio unchanged
         const plan = planFor({ notation: { instrumentKey: 'Eb', octaveShift } });
         const rendered = render(plan);
         assert.equal(rendered.models[0].find(voice => voice.id === 'lead').key.k_sf, 3);
-        assert.match(rendered.svg, />A\/E</);
+        assert.ok(rendered.labels.includes('A/E'));
         assert.deepEqual(scheduled(plan).filter(event => event.id === 'lead').map(event => event.midi), [60, 62, 64, 65]);
     }
 });

@@ -229,7 +229,7 @@ export class PersonalControls {
             plan.inventories.forEach((tune, index) => {
                 const group = element('fieldset');
                 if (plan.inventories.length > 1) group.append(element('legend', tune.title));
-                const labels = tune.voices.map(voice => voice.name || voice.shortName || voice.id);
+                const labels = tune.voices.map(voice => voice.name || voice.shortName || (tune.voices.length === 1 ? 'Main voice' : voice.id));
                 tune.voices.forEach((voice, voiceIndex) => {
                     const checkbox = element('input');
                     checkbox.type = 'checkbox';

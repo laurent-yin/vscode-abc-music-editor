@@ -22,7 +22,7 @@ try {
     });
     const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
     let chordFontRequests = 0;
-    await page.route('**/FreeSerif-chords.woff2', async route => {
+    await page.route('**/FreeSerifBold-chords.woff2', async route => {
         chordFontRequests++;
         await new Promise(resolve => setTimeout(resolve, 150));
         await route.continue();
@@ -76,7 +76,7 @@ try {
     await page.goto(url);
     await page.waitForFunction(() => document.getElementById('display-toggle')?.textContent.includes('Melody'));
     assert.equal(await page.locator('#chord-source').count(), 0, 'source hidden when voices are displayed');
-    const fixture = '%%pagewidth 740\n%%pageheight 900\n%%fit2box * *\nX:1\nT:Browser grid\nC:Composer\nM:2/4\nL:1/4\nV:lead name="Melody"\nV:low name="Counterpoint"\nK:C\n[V:lead] "C/G" C D | "C/G" E F |\n"F" G A | "G7" B c |]\n[V:low] C, D, | E, F, |\nG, A, | B, C |]\n';
+    const fixture = '%%pagewidth 740\n%%pageheight 900\n%%fit2box * *\nX:1\nT:Browser grid\nC:Composer\nM:2/4\nL:1/4\nV:lead name="Melody"\nV:low name="Counterpoint"\nK:C\n[V:lead] "C/G" C D | "C/G" E F |\n[V:low] C, D, | E, F, |\n[V:lead] "F" G A | "G7" B c |]\n[V:low] G, A, | B, C |]\n';
     await page.evaluate(async content => {
         const response = await fetch('/fixture', { method: 'POST', body: JSON.stringify({ content }) });
         window.postMessage(await response.json(), location.origin);
@@ -89,7 +89,7 @@ try {
     await page.waitForFunction(() => document.querySelectorAll('.chord-grid .grid-cell').length === 4);
     assert.equal(await page.locator('#display-toggle').textContent(), 'Display: Chords');
     assert.ok(chordFontRequests > 0, 'chord font is bundled rather than relying on an installed font');
-    assert.ok(await page.evaluate(() => document.fonts.check('32px ABCGridChord', 'Bm7(\u266d5)/F\u266f')), 'font loads before initial chord layout, even on a delayed request');
+    assert.ok(await page.evaluate(() => document.fonts.check('normal 700 32px ABCGridChord', 'Bm7(\u266d5)/F\u266f')), 'font loads before initial chord layout, even on a delayed request');
     assert.equal(await page.locator('.chord-grid svg').count(), 2, 'ABC source rows');
     assert.equal(await page.locator('.chord-grid .grid-chord').allTextContents().then(labels => labels.filter(text => text === '%').length), 1);
     assert.equal(await page.locator('#sheet svg .slW').count(), 0, 'no empty staves');
@@ -99,6 +99,37 @@ try {
     assert.equal(await page.locator('#display-voices #chord-source').count(), 1);
     await page.keyboard.press('Escape');
     await assertScoreFits();
+    const selectedMeasures = () => page.locator('.grid-cell:has(.abcr.selected)').evaluateAll(cells =>
+        cells.map(cell => Number(cell.dataset.measure)));
+    const dragMeasures = async (start, end) => {
+        const markers = page.locator('.chord-grid .abcr');
+        const first = await markers.nth(start).boundingBox();
+        const last = await markers.nth(end).boundingBox();
+        await page.mouse.move(first.x + first.width / 2, first.y + first.height * .85);
+        await page.mouse.down();
+        await page.mouse.move(last.x + last.width / 2, last.y + last.height * .85, { steps: 10 });
+        await page.mouse.up();
+    };
+    for (const [start, end] of [[1, 2], [2, 1]]) {
+        await dragMeasures(start, end);
+        assert.deepEqual(await selectedMeasures(), [1, 2], 'cross-row selection follows measures, not interleaved source voice offsets');
+        const boundaries = await page.locator('.chord-grid').evaluate(root => {
+            const selected = [...root.querySelectorAll('.abcr.selected')];
+            const lines = [...root.querySelectorAll('.selected-area')];
+            return {
+                start: lines[0].getBoundingClientRect().left - selected[0].getBoundingClientRect().left,
+                end: lines[1].getBoundingClientRect().left - selected.at(-1).getBoundingClientRect().right
+            };
+        });
+        assert.ok(Math.abs(boundaries.start) < 1 && Math.abs(boundaries.end) < 1, 'selection boundaries match the first and last selected measure');
+        await page.setViewportSize({ width: 700, height: 900 });
+        await assertScoreFits();
+        assert.deepEqual(await selectedMeasures(), [1, 2], 'cross-row selection survives responsive redraw');
+        await page.locator('.chord-grid h2').click();
+        assert.deepEqual(await selectedMeasures(), [], 'clearing selection removes every selected measure');
+        await page.setViewportSize({ width: 1000, height: 900 });
+        await assertScoreFits();
+    }
     await chooseSource('low');
     await page.waitForFunction(() => document.querySelector('.chord-grid [role=status]')?.textContent.includes('has no chords'));
     await page.reload();
@@ -240,7 +271,7 @@ try {
         });
     });
     assert.ok(denseGeometry.every((rect, index) => rect.right <= rect.limit && (!index || denseGeometry[index - 1].right < rect.left)), 'six complex chords neither overlap nor overflow');
-    const variedRows = '%%gchordfont Helvetica-BoldItalic 10\nX:1\nT:Compact serif chords\nM:2/4\nL:1/8\nV:low\nK:C\n!fermata!"D/F#"C4 | !uppermordent!"Bm7b5"D4 |\n"C#m7b5"C"D7b9"E"Abm6/Bb"G"B7#5"B |\n"G""^a tempo"G4 | "Em"E4 |]\n';
+    const variedRows = '%%gchordfont Helvetica-BoldItalic 10\nX:1\nT:Compact serif chords\nM:2/4\nL:1/8\nV:low\nK:C\n!fermata!"D/F#"C4 | !uppermordent!"Bm7b5"D4 |\n"C#m7b5"C"D7b9"E"Abm6/Bb"G"B7#5"B |\n"G""^a tempo"G4 | "Bb°"E4 |]\n';
     await page.evaluate(async content => {
         const response = await fetch('/fixture', { method: 'POST', body: JSON.stringify({ content }) });
         window.postMessage(await response.json(), location.origin);
@@ -262,15 +293,37 @@ try {
                 root: label.querySelector('.grid-chord-root')?.textContent,
                 suffix: label.querySelector('.grid-chord-suffix')?.textContent,
                 bass: label.querySelector('.grid-chord-bass')?.textContent,
-                positions: [...label.querySelectorAll('tspan')].map(node => ({
+                positions: [...label.querySelectorAll(':scope > tspan')].map(node => ({
                     role: node.getAttribute('class'), y: Number(node.getAttribute('y'))
-                }))
+                })),
+                accidentals: [...label.querySelectorAll('.chord-accidental')].map(node => ({
+                    size: parseFloat(getComputedStyle(node).fontSize),
+                    parentSize: parseFloat(getComputedStyle(node.parentElement).fontSize),
+                    dx: Number(node.getAttribute('dx'))
+                })),
+                flatSpacing: [...label.querySelectorAll('tspan[letter-spacing]')].filter(span => span.textContent === '♭').flatMap(span => {
+                    const run = span.parentElement;
+                    const preceding = document.createRange();
+                    preceding.selectNodeContents(run);
+                    preceding.setEndBefore(span);
+                    const index = preceding.toString().length;
+                    const nextRun = run.nextElementSibling;
+                    if (index + 1 >= run.textContent.length && !nextRun) return [];
+                    const adjusted = index + 1 < run.textContent.length
+                        ? run.getStartPositionOfChar(index + 1).x : nextRun.getStartPositionOfChar(0).x;
+                    const spacing = span.getAttribute('letter-spacing');
+                    span.setAttribute('letter-spacing', '0');
+                    const unadjusted = index + 1 < run.textContent.length
+                        ? run.getStartPositionOfChar(index + 1).x : span.getEndPositionOfChar(0).x;
+                    span.setAttribute('letter-spacing', spacing);
+                    return [unadjusted - adjusted];
+                })
             })),
             text: root.textContent
         };
     });
-    assert.equal(new Set(typography.fonts).size, 1, 'every chord uses the same serif family, normal weight and style');
-    assert.ok(typography.fonts.every(font => font === 'ABCGridChord|32px|400|normal'));
+    assert.equal(new Set(typography.fonts).size, 1, 'every chord uses the same serif family, bold weight and upright style');
+    assert.ok(typography.fonts.every(font => font === 'ABCGridChord|32px|700|normal'));
     assert.deepEqual([...new Set(typography.roots)], ['32px'], 'all roots retain a consistent size');
     assert.deepEqual([...new Set(typography.suffixes)], ['24px'], 'extensions stay readable at 75% of root size');
     const halfDiminished = typography.components.find(chord => chord.source === 'Bm7b5');
@@ -279,6 +332,15 @@ try {
     const slashChord = typography.components.find(chord => chord.source === 'D/F#');
     assert.equal(slashChord.root, 'D');
     assert.equal(slashChord.bass, 'F\u266f');
+    const accidentals = typography.components.flatMap(chord => chord.accidentals);
+    assert.ok(accidentals.length > 0);
+    assert.ok(accidentals.every(mark => Math.abs(mark.size / mark.parentSize - .8) < .001
+        && Math.abs(mark.dx / mark.parentSize + .05) < .001), 'root and bass accidentals are smaller and closer to their note');
+    for (const source of ['Bm7b5', 'Bb°']) {
+        const chord = typography.components.find(chord => chord.source === source);
+        assert.ok(chord.flatSpacing.length > 0 && chord.flatSpacing.every(reduction => reduction > 1),
+            `${source}: the glyph after a flat moves closer in the grid`);
+    }
     assert.ok(slashChord.positions[0].y < slashChord.positions[1].y && slashChord.positions[1].y < slashChord.positions[2].y, 'slash and bass descend progressively');
     assert.ok(halfDiminished.positions[1].y < halfDiminished.positions[0].y, 'extension is raised');
     assert.ok(Math.max(...typography.scales) - Math.min(...typography.scales) < .001, 'dense and sparse rows share the same actual screen scale');
@@ -372,7 +434,7 @@ try {
         host.remove();
     });
     assert.deepEqual(errors, [], 'no browser exceptions');
-    await page.route('**/FreeSerif-chords.woff2', route => route.abort('failed'));
+    await page.route('**/FreeSerifBold-chords.woff2', route => route.abort('failed'));
     await page.reload();
     await page.waitForFunction(() => document.getElementById('display-toggle')?.textContent === 'Display: Original');
     assert.match(await page.locator('#preview-status').textContent(), /Reason:/, 'font failure is surfaced through the standard explicit original-sheet recovery');

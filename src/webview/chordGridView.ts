@@ -1,13 +1,13 @@
-import { formatGridChord, layoutGridRows } from 'abctools/chord-grid';
+import { layoutGridRows } from 'abctools/chord-grid';
 import type { ChordGridSettings } from 'abctools/preferences';
 import type { ChordGrid } from './chordGridModel.js';
+import { chordFont, chordFontStyle, chordFontWeight, chordGlyphs, chordRuns } from './chordTypography.js';
 
 const ns = 'http://www.w3.org/2000/svg';
-const chordFont = 'ABCGridChord';
 
 export async function loadChordGridFont(): Promise<void> {
-    const faces = await document.fonts.load(`32px ${chordFont}`, 'Bm7(\u266d5)/F\u266f');
-    if (!faces.length) throw new Error('The bundled chord grid font is unavailable.');
+    const faces = await document.fonts.load(`${chordFontStyle} ${chordFontWeight} 32px ${chordFont}`, 'Bm7(\u266d5)/F\u266f');
+    if (!faces.length) throw new Error('The bundled chord font is unavailable.');
 }
 
 /** Fit the complete grid page, not just individual rows, into the score area. */
@@ -100,23 +100,12 @@ export function mountChordGrid(host: HTMLElement, grid: ChordGrid, settings: Cho
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Cannot measure chord grid text: canvas context is unavailable.');
     const measureText = (value: string, size: number, family = 'sans-serif') => {
-        context.font = `${size}px ${family}`;
+        const style = family === chordFont ? `${chordFontStyle} ${chordFontWeight}` : '400';
+        context.font = `${style} ${size}px ${family}`;
         return context.measureText(value).width;
     };
-    const chordRuns = (value: string, repeat: boolean) => {
-        const parts = repeat ? undefined : formatGridChord(value);
-        if (!parts) return [{ value, size: repeat ? 40 : 32, offset: 0, role: 'literal' }];
-        return [
-            { value: parts.root, size: 32, offset: 0, role: 'root' },
-            ...(parts.suffix ? [{ value: parts.suffix, size: 24, offset: -10, role: 'suffix' }] : []),
-            ...(parts.bass ? [
-                { value: '/', size: 26, offset: 3, role: 'slash' },
-                { value: parts.bass, size: 26, offset: 7, role: 'bass' }
-            ] : [])
-        ];
-    };
-    const chordWidth = (value: string, repeat: boolean) => chordRuns(value, repeat)
-        .reduce((width, run) => width + measureText(run.value, run.size, chordFont), 0);
+    const chordWidth = (value: string, repeat: boolean) => chordRuns(value, 32, repeat)
+        .flatMap(chordGlyphs).reduce((width, glyph) => width + measureText(glyph.value, glyph.size, chordFont) + glyph.dx + glyph.spacing, 0);
     const widths = grid.measures.map(measure => {
         let width = 100;
         const chords = measure.repeat ? [{ time: 0, text: '%' }] : measure.chords;
@@ -180,14 +169,24 @@ export function mountChordGrid(host: HTMLElement, grid: ChordGrid, settings: Cho
                     stack.set(chord.time, level + 1);
                     const baseline = top + 32 + level * 44;
                     const label = svg('text', { class: 'grid-chord', 'font-family': chordFont,
+                        'font-weight': chordFontWeight, 'font-style': chordFontStyle,
                         'font-size': 32, 'aria-label': chord.text, 'data-chord': chord.text });
                     let position = cx;
-                    for (const run of chordRuns(chord.text, measure.repeat)) {
+                    for (const run of chordRuns(chord.text, 32, measure.repeat)) {
                         const span = svg('tspan', { class: `grid-chord-${run.role}`, x: position,
                             y: baseline + run.offset, 'font-size': run.size });
-                        span.textContent = run.value;
+                        for (const glyph of chordGlyphs(run)) {
+                            if (glyph.dx || glyph.spacing) {
+                                const accidental = svg('tspan', { class: glyph.dx ? 'chord-accidental' : 'chord-alteration',
+                                    'font-size': glyph.size, dx: glyph.dx, 'letter-spacing': glyph.spacing });
+                                accidental.textContent = glyph.value;
+                                span.append(accidental);
+                            } else {
+                                span.append(document.createTextNode(glyph.value));
+                            }
+                            position += measureText(glyph.value, glyph.size, chordFont) + glyph.dx + glyph.spacing;
+                        }
                         label.append(span);
-                        position += measureText(run.value, run.size, chordFont);
                     }
                     cell.append(label);
                 }

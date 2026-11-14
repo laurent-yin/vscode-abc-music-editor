@@ -4,6 +4,33 @@ All notable changes to the "vscode-abc-music-editor" extension will be documente
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [Unreleased]
+
+### Added
+
+- Display and Playback label a tune's only unnamed voice "Main voice" instead
+  of showing just its numeric or internal ID.
+- Score chords use the chord grids' bundled FreeSerif Bold and compact raised
+  extensions/lowered slash basses by default. Explicit `%%gchordfont` settings
+  retain their authored font and styling.
+
+### Changed
+
+- Score and grid chords use upright FreeSerif Bold for readability at small
+  sizes. Regular FreeSerif and both FreeSans Bold variants remain bundled for
+  future font choices.
+- Root and slash-bass accidentals are smaller and closer to their note letters
+  on scores and grids, without shrinking alterations in raised extensions.
+- Tighten spacing after flats, including before diminished symbols and extension
+  numbers, on scores and grids.
+
+### Fixed
+
+- Cross-row chord grid selections follow measure order even when voices are
+  interleaved in the ABC source, without highlighting earlier unselected measures.
+- Preserve custom chord fonts in personal score previews, including fitted
+  layouts and chords projected from hidden voices, avoiding oversized or clipped labels.
+
 ## [0.4.11] - 2026-11-14
 
 ### Added
@@ -42,7 +69,5 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ### Added
 
 - Support for loading external soundfonts as .js files from any URL
-
-## [Unreleased]
 
 - Initial release
