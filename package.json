@@ -128,7 +128,7 @@
 		"minimatch": "^11.0.1"
 	},
 	"dependencies": {
-		"abctools": "file:vendor/abctools-0.2.5.tgz",
+		"abctools": "0.2.5",
 		"lz-string": "^1.5.0"
 	}
 }

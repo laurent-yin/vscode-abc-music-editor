@@ -68,7 +68,6 @@ web_modules/
 
 # Output of 'npm pack'
 *.tgz
-!vendor/abctools-*.tgz
 
 # Yarn Integrity file
 .yarn-integrity
