@@ -5,6 +5,7 @@ import type { PreviewPlan, MusicVoice, MusicSymbol, Model } from './renderer.js'
 import type { RenderMessage } from '../shared/protocol.js';
 import { refreshFileVoices } from 'abctools/preferences';
 import { fitChordGridPage, loadChordGridFont, mountChordGrid } from './chordGridView.js';
+import { highlightMeasure, mountMeasureHighlights } from './measureHighlight.js';
 
 /**
  * This file handles the conversion of ABC notation to SVG graphics in the webview
@@ -121,7 +122,7 @@ interface User {
 
 interface PlayOptions {
     onend: (repv?: number) => void;
-    onnote: (note: any) => void;
+    onnote: (note: number, on: boolean) => void;
     voiceMixer: VoiceMixer;
 }
 
@@ -188,7 +189,9 @@ function createPlayer(): AbcPlay {
     const player = AbcPlay({
         voiceMixer,
         onend(repv) { if (generation === playerGeneration) endplay(repv); },
-        onnote(note) { if (generation === playerGeneration) playNoteCallback(note); }
+        onnote(note, on) {
+            if (generation === playerGeneration && on && play.playing && !play.pauseRequested && !play.stopRequested) playNoteCallback(note);
+        }
     });
     const tuneIndex = Number((document.getElementById('playback-tune') as HTMLSelectElement | null)?.value ?? 0);
     const original = previewPlan?.inventories[tuneIndex]?.tempo;
@@ -355,6 +358,7 @@ async function renderPersonalPreview(message: RenderMessage): Promise<void> {
         if (!plan.fallback) voiceMixer?.update(playbackVoices(plan.audio.tunes, selections, message.preferences.playback.chords), plan.playbackTransposition);
         currentAbcContent = message.content;
         if (redraw) renderAbcContent(plan.content, undefined, !!retainedAudio);
+        else highlightGridNote(play.noteToResumeTo);
         personalControls.render(message, plan, plan.inventories[0]?.key);
         if (refreshedChordSource?.documentId === message.documentId) {
             status.textContent = `Chord source "${refreshedChordSource.id}" no longer exists. The saved source was reset to the first voice; choose another source if needed.`;
@@ -385,6 +389,14 @@ async function renderPersonalPreview(message: RenderMessage): Promise<void> {
                 playbackModel = audio;
                 currentMessage = message;
                 indexPlaybackSymbols(audio);
+                for (const marker of div.querySelectorAll<SVGElement>('.abcr, [data-playback-bar]')) {
+                    const source = marker.dataset.playbackBar ?? marker.getAttribute('class')?.match(/_(\d+)_/)?.[1];
+                    const symbol = source === undefined ? undefined : syms[Number(source)];
+                    if (!symbol) continue;
+                    const key = marker.hasAttribute('data-playback-bar') ? plan.boundaryFor(symbol) : plan.measureFor(symbol);
+                    if (key) marker.setAttribute(marker.hasAttribute('data-playback-bar') ? 'data-playback-boundary' : 'data-playback-measure', key);
+                }
+                mountMeasureHighlights(div);
                 personalControls.render(message, plan, plan.inventories[0]?.key);
                 document.getElementById('display-toggle')!.textContent = 'Display: Original';
                 document.getElementById('playback-toggle')!.textContent = 'Playback: Original';
@@ -450,17 +462,26 @@ function renderAbcContent(abcContent: string, recoveryDiagnostics?: string[], pr
                     
                     if (["beam", "slur", "tuplet"].indexOf(type) >= 0)
                         return;
-                    
+                    const canonical = recoveryDiagnostics ? s : previewPlan?.symbolFor(s, displayTuneIndex);
+                    if (type === 'bar' && canonical) {
+                        const boundary = previewPlan?.boundaryFor(canonical);
+                        if (canonical.istart !== undefined) {
+                            abc.out_svg(`<rect fill="none" pointer-events="none" data-playback-bar="${canonical.istart}"${boundary ? ` data-playback-boundary="${boundary}"` : ''} x="`);
+                            abc.out_sxsy(x + w / 2, '" y="', y);
+                            abc.out_svg(`" width="0" height="${abc.sh(h).toFixed(2)}"/>\n`);
+                        }
+                        return;
+                    }
                     if (["note", "rest", "Zrest"].indexOf(type) == -1)
                         return;
-                    const canonical = recoveryDiagnostics ? s : previewPlan?.symbolFor(s, displayTuneIndex);
                     if (canonical?.istart === undefined) return;
                     start = canonical.istart;
             
                     // Create a rectangle element for this musical symbol
                     // This rectangle will be invisible initially but can be highlighted when selected
+                    const measure = previewPlan?.measureFor(canonical);
                     abc.out_svg('<rect class="abcr _' + start +
-                        '_" x="');
+                        '_"' + (measure ? ` data-playback-measure="${measure}"` : '') + ' x="');
                     // Position the rectangle using the symbol's coordinates
                     abc.out_sxsy(x, '" y="', y);
                     // Set the rectangle's dimensions
@@ -527,6 +548,7 @@ function renderAbcContent(abcContent: string, recoveryDiagnostics?: string[], pr
                 // Insert all the collected SVG content into the DOM
                 console.log('inserting SVG content into the DOM, length:', abc_images.length);
                 div.innerHTML = abc_images;
+                mountMeasureHighlights(div);
                 div.querySelectorAll<HTMLElement>('[data-grid-index]').forEach(host => {
                     const grid = previewPlan?.grids?.[Number(host.dataset.gridIndex)];
                     if (grid && currentMessage) disposeGrids.push(mountChordGrid(host, grid, currentMessage.preferences.chordGrid, () => {
@@ -538,6 +560,7 @@ function renderAbcContent(abcContent: string, recoveryDiagnostics?: string[], pr
                     selectionManager.update();
                     highlightGridNote(play.noteToResumeTo);
                 }));
+                highlightGridNote(play.noteToResumeTo);
                 if (preserveSelection) selectionManager.update();
                 else selectionManager.clear();
                 
@@ -972,6 +995,7 @@ document.getElementById('play-pause-btn')?.addEventListener('click', (event) => 
 
     if (play?.playing) {
         play.pauseRequested = true;
+        highlightGridNote();
         play_tune(3); // Continue/stop playback
 
         setPlayPauseIcon(true);
@@ -1234,9 +1258,11 @@ function playNoteCallback(i: any) {
 }
 
 function highlightGridNote(index?: number): void {
-    document.querySelectorAll('.chord-grid .abcr').forEach(marker => {
-        marker.classList.toggle('grid-playing', !!index && marker.classList.contains(`_${index}_`));
-    });
+    const active = play.playing && currentMessage?.preferences.highlightCurrentMeasure !== false;
+    const symbol = index === undefined ? undefined : syms[index];
+    highlightMeasure(document.getElementById('sheet')!,
+        active && symbol ? previewPlan?.measureFor(symbol) : undefined,
+        active ? index : undefined);
 }
 /**
  * Set or clear a selection highlight

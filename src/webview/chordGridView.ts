@@ -201,7 +201,7 @@ export function mountChordGrid(host: HTMLElement, grid: ChordGrid, settings: Cho
                 const description = svg('title');
                 description.textContent = ids.length ? cell.getAttribute('aria-label') : `${cell.getAttribute('aria-label')}. No separate playback event; use full-tune playback for this passage.`;
                 marker.append(description);
-                cell.append(marker);
+                cell.prepend(marker);
                 row.append(cell);
                 x += width;
             }

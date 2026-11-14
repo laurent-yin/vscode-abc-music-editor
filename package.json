@@ -2,7 +2,7 @@
 	"name": "abc-to-svg",
 	"displayName": "ABC Notation Support",
 	"description": "Support for ABC Music Notation using abc2svg.",
-	"version": "0.4.10",
+	"version": "0.4.11",
 	"engines": {
 		"vscode": "^1.99.0"
 	},
@@ -113,7 +113,8 @@
 		"pretest": "npm run build && npm run lint",
 		"test": "node --test test/*.test.mjs",
 		"test:host": "npm run build && node test/run-extension-host.mjs",
-		"test:grid-browser": "npm run build && node test/grid-browser.mjs"
+		"test:grid-browser": "npm run build && node test/grid-browser.mjs",
+		"test:measure-browser": "npm run build && node test/measure-browser.mjs"
 	},
 	"devDependencies": {
 		"@types/node": "^22.14.1",
@@ -128,7 +129,7 @@
 		"minimatch": "^11.0.1"
 	},
 	"dependencies": {
-		"abctools": "0.2.5",
+		"abctools": "0.2.6",
 		"lz-string": "^1.5.0"
 	}
 }

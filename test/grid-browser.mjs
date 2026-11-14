@@ -162,9 +162,9 @@ try {
     await chooseSource('low');
     await page.waitForFunction(() => document.querySelector('.grid-chord')?.textContent === 'Dm');
     assert.equal(await page.locator('#play-pause-btn').getAttribute('aria-label'), 'Pause', 'source changes keep playback running');
-    await page.waitForFunction(() => !!document.querySelector('.grid-playing'), undefined, { timeout: 10000 });
+    await page.waitForFunction(() => !!document.querySelector('.measure-playing'), undefined, { timeout: 10000 });
     await page.locator('#stop-btn').click();
-    assert.equal(await page.locator('.grid-playing').count(), 0, 'stop clears playback highlighting');
+    assert.equal(await page.locator('.measure-playing').count(), 0, 'stop clears playback highlighting');
     await page.locator('#preferences-toggle').click();
     // The grid section stays expanded after earlier preference saves.
     if (!await page.locator('#chord-grid-repeats').isVisible()) await page.locator('#personal-controls summary').filter({ hasText: 'Chord grid defaults' }).click();

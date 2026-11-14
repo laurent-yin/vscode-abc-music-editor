@@ -93,14 +93,7 @@ export function captureGridSnapshot(voices: MusicVoice[], info: Record<string, s
     };
 }
 
-export function chordGridFromSnapshot(snapshot: GridSnapshot, sourceId: string | undefined, repeatMeasures: boolean, showTextInstructions = false): ChordGrid {
-    const id = sourceId ?? snapshot.voices[0]?.id ?? '';
-    const voice = snapshot.voices.find(item => item.id === id);
-    const base = { title: snapshot.title, composer: snapshot.composer, sourceId: id, meter: voice?.meter ?? '', notices: [] as string[] };
-    if (!voice) return { ...base, measures: [], message: `Chord source "${id}" is unavailable in this tune. Choose another source voice.` };
-    if (!voice.events.some(event => event.chords.length)) {
-        return { ...base, measures: [], message: `Voice "${id}" has no chords. Choose another source voice.` };
-    }
+export function measureBoundaries(voice: GridVoiceSnapshot): number[] {
     const end = Math.max(0, ...voice.events.map(event => event.time + event.duration));
     const boundaries = new Set([0, end]);
     let measureDuration = voice.measureDuration;
@@ -111,9 +104,21 @@ export function chordGridFromSnapshot(snapshot: GridSnapshot, sourceId: string |
             for (let time = event.time + measureDuration; time < event.time + event.duration; time += measureDuration) boundaries.add(time);
         }
     }
-    const times = [...boundaries].sort((a, b) => a - b);
+    return [...boundaries].sort((a, b) => a - b);
+}
+
+export function chordGridFromSnapshot(snapshot: GridSnapshot, sourceId: string | undefined, repeatMeasures: boolean, showTextInstructions = false): ChordGrid {
+    const id = sourceId ?? snapshot.voices[0]?.id ?? '';
+    const voice = snapshot.voices.find(item => item.id === id);
+    const base = { title: snapshot.title, composer: snapshot.composer, sourceId: id, meter: voice?.meter ?? '', notices: [] as string[] };
+    if (!voice) return { ...base, measures: [], message: `Chord source "${id}" is unavailable in this tune. Choose another source voice.` };
+    if (!voice.events.some(event => event.chords.length)) {
+        return { ...base, measures: [], message: `Voice "${id}" has no chords. Choose another source voice.` };
+    }
+    const times = measureBoundaries(voice);
+    const end = times.at(-1)!;
     const measures: GridMeasure[] = [];
-    measureDuration = voice.measureDuration;
+    let measureDuration = voice.measureDuration;
     for (let index = 0; index < times.length - 1; index++) {
         const start = times[index], finish = times[index + 1];
         const events = voice.events.filter(event => event.time >= start && event.time < finish);

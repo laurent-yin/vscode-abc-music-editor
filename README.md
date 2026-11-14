@@ -105,6 +105,13 @@ measures, such as a part's ending, retain their chords. This never changes the
 source or full-tune playback.
 Click/drag cells to select complete measures for playback; `%` cells retain
 their musical intervals. Playback highlights the current measure.
+During playback, sheet music and chord grids show a subtle light-grey background
+behind the complete current measure, without recoloring individual notes or
+chords. It clears on pause, stop or completion and follows repeats and selections.
+Turn off **Highlight current measure during playback** in the gear's general
+preferences to disable it for all files. The setting is saved as
+`defaults.highlightCurrentMeasure` (enabled by default); changing it does not
+interrupt playback.
 An internal measure of an authored multi-measure rest may have no standalone
 playback event; its tooltip and preview notices explain when full-tune playback
 is needed instead.
@@ -120,7 +127,7 @@ Global JSON settings are `"chordGrid": {"layout": "source",
 use `"compact"` for automatic wrap.
 The file-only source override is `"chordSourceVoiceId": "melody"`.
 
-The extension consumes the published `abctools@0.2.5` npm package for shared
+The extension consumes the published `abctools@0.2.6` npm package for shared
 chord-grid logic and preferences. No bundled package or sibling checkout is
 required. Browser regressions run with `npm run test:grid-browser` after `npx playwright install
 chromium`; an existing Chrome executable can instead be selected with
@@ -310,7 +317,7 @@ yet provide a composed source map. Errors are shown in the preview instead.
 
 ## Development and validation
 
-The extension uses the published `abctools@0.2.5` npm package, including its
+The extension uses the published `abctools@0.2.6` npm package, including its
 portable preferences and configuration APIs. No sibling checkout is required.
 
 Development tooling requires Node.js 20.19+, 22.13+, or 24+. This does not

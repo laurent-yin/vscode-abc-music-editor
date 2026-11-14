@@ -321,6 +321,7 @@ export class PersonalControls {
                 playback: message.defaultChoices.playback,
                 notation: defaultsNotation,
                 chordGrid: message.defaultChoices.chordGrid,
+                highlightCurrentMeasure: message.defaultChoices.highlightCurrentMeasure,
                 [operation]: { hideVoicesMatching: pattern.value.trim(), chords: defaultChords.checked }
             })));
             toolbar.append(defaults);
@@ -335,7 +336,8 @@ export class PersonalControls {
                 display: message.defaultChoices.display,
                 playback: message.defaultChoices.playback,
                 notation,
-                chordGrid: message.defaultChoices.chordGrid
+                chordGrid: message.defaultChoices.chordGrid,
+                highlightCurrentMeasure: message.defaultChoices.highlightCurrentMeasure
             });
         }));
         const gridDefaults = element('details');
@@ -360,6 +362,7 @@ export class PersonalControls {
             display: message.defaultChoices.display,
             playback: message.defaultChoices.playback,
             notation: defaultsNotation,
+            highlightCurrentMeasure: message.defaultChoices.highlightCurrentMeasure,
             chordGrid: {
                 layout: layout.value === 'compact' ? 'compact' : 'source',
                 repeatMeasures: repeats.checked,
@@ -367,6 +370,18 @@ export class PersonalControls {
             }
         })));
         toolbar.append(gridDefaults);
+        const highlight = element('input');
+        highlight.type = 'checkbox';
+        highlight.id = 'highlight-current-measure';
+        highlight.checked = message.defaultChoices.highlightCurrentMeasure;
+        highlight.onchange = () => this.save('defaults', {
+            display: message.defaultChoices.display,
+            playback: message.defaultChoices.playback,
+            notation: defaultsNotation,
+            chordGrid: message.defaultChoices.chordGrid,
+            highlightCurrentMeasure: highlight.checked
+        });
+        toolbar.append(this.label('Highlight current measure during playback ', highlight));
         toolbar.append(element('small', 'Instrument keys change notation only. Set file and per-voice keys in the header and Display menu. Transposition changes notation and sound; set it to 0 to reset.'));
         root.append(toolbar);
         root.append(element('p', `Sounding keys: ${plan.inventories.map(tune => `${tune.title}: ${tune.key}`).join('; ')}`));

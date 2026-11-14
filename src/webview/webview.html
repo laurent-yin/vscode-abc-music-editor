@@ -40,7 +40,12 @@
         .grid-only-preview .chord-grid svg { max-width: none; }
         .chord-grid .abcr { cursor: pointer; }
         .chord-grid .abcr.selected { fill: #0078d722; stroke: #0078d7; }
-        .chord-grid .abcr.grid-playing { fill: #00a87033; }
+        .measure-highlight { fill: transparent; }
+        .measure-highlight.measure-playing, .chord-grid .abcr.measure-playing { fill: #888; fill-opacity: .14; }
+        @media print {
+            .measure-backgrounds { display: none; }
+            .chord-grid .abcr.measure-playing { fill: transparent; }
+        }
         .chord-grid .grid-chord { pointer-events: none; }
         .file-control input { width: 3em; }
         .transposition-box { display: inline-flex; align-items: center; gap: .15em; padding-right: .3em; border: 1px solid var(--vscode-input-border, #888); background: var(--vscode-input-background, white); color: var(--vscode-input-foreground, #222); }

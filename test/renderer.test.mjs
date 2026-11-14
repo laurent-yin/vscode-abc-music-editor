@@ -45,6 +45,32 @@ function notes(voice) {
     for (let symbol = voice.sym; symbol; symbol = symbol.next) if (symbol.notes) result.push(...symbol.notes);
     return result;
 }
+test('measure identity spans voices, survives audio preparation and retained redraws, and separates tunes', () => {
+    const source = fixture.replace('C D | E F', '{c}C D | E F') + '\n' + fixture.replace('X:1', 'X:2');
+    const plan = planFor({}, source);
+    const identities = [];
+    for (const [index, tune] of plan.audio.tunes.entries()) {
+        const voices = tune[1].slice(0, 2).map(voice => {
+            const result = [];
+            for (let symbol = voice.sym; symbol; symbol = symbol.next) {
+                if (symbol.dur) result.push(symbol);
+            }
+            return result;
+        });
+        const keys = voices.map(voice => voice.map(symbol => plan.measureFor(symbol)));
+        assert.deepEqual(keys[0], keys[1]);
+        assert.equal(keys[0][0], `${index}:0:768`);
+        assert.equal(keys[0][1], keys[0][0], 'all notes in a measure share a key');
+        assert.notEqual(keys[0][2], keys[0][0]);
+        for (const voice of voices) for (const symbol of voice) identities.push([symbol, plan.measureFor(symbol)]);
+        context.ToAudio().add(tune[0], tune[1], tune[3]);
+    }
+    const choices = resolvePreferences({ version: 1 }, 'fixture.abc');
+    const redraw = createPlan(source, choices, sourceModel(source), plan.selections, plan.audio);
+    for (const [symbol, key] of identities) assert.equal(redraw.measureFor(symbol), key);
+    const recovery = originalPlan(fixture, sourceModel(fixture));
+    assert.equal(recovery.measureFor(recovery.audio.tunes[0][1][0].sym), '0:0:768');
+});
 test('original recovery preserves unsupported layouts, authored pitches, chords and all playback voices', () => {
     const source = '%%MIDI gchordon\n' + fixture.replace('K:C', '%%score (lead low)\nK:C');
     const choices = { display: { selectedVoiceIds: ['lead'], chords: false }, playback: { selectedVoiceIds: [], chords: false }, transposition: { semitones: 2 } };

@@ -1,6 +1,6 @@
 import { voiceNotation, resolveVoiceFilter } from 'abctools/preferences';
 import type { EffectiveChoices, FilterResult, VoiceDescriptor } from 'abctools/preferences';
-import { captureGridSnapshot, chordGridFromSnapshot } from './chordGridModel.js';
+import { captureGridSnapshot, chordGridFromSnapshot, measureBoundaries } from './chordGridModel.js';
 import type { ChordGrid, GridSnapshot } from './chordGridModel.js';
 
 export interface MusicNote { midi?: number; noplay?: boolean | number; pit: number; acc?: number }
@@ -47,6 +47,8 @@ export interface PreviewPlan {
     grids?: (ChordGrid | undefined)[];
     gridSelection?(start: number, end: number): { start: number; end: number } | undefined;
     symbolFor(displaySymbol: MusicSymbol, tuneIndex: number): MusicSymbol | undefined;
+    measureFor(symbol: MusicSymbol): string | undefined;
+    boundaryFor(symbol: MusicSymbol): string | undefined;
     prepareDisplay(model: Model, voices: MusicVoice[], tuneIndex: number): void;
 }
 export function originalPlan(content: string, audio: Model): PreviewPlan {
@@ -59,8 +61,25 @@ export function originalPlan(content: string, audio: Model): PreviewPlan {
         })),
         notices: ['Recovery mode: original authored layout and playback; personal display, playback, notation and transposition preferences are not applied. Saved preferences are unchanged.'],
         symbolFor(symbol) { return symbol; },
+        ...measureIndex(audio),
         prepareDisplay() {}
     };
+}
+function measureIndex(model: Model): Pick<PreviewPlan, 'measureFor' | 'boundaryFor'> {
+    const measures = new WeakMap<MusicSymbol, string>();
+    const boundaries = new WeakMap<MusicSymbol, string>();
+    const snapshots = gridSnapshots.get(model) ?? model.tunes.map(tune => captureGridSnapshot(tune[1], tune[2]));
+    model.tunes.forEach((tune, index) => {
+        const voice = snapshots[index]?.voices[0];
+        if (!voice) return;
+        const times = measureBoundaries(voice);
+        for (const part of tune[1]) for (const symbol of symbols(part)) {
+            const measure = times.findIndex((start, i) => symbol.time >= start && symbol.time < times[i + 1]);
+            if (measure >= 0) measures.set(symbol, `${index}:${times[measure]}:${times[measure + 1]}`);
+            if (times.includes(symbol.time)) boundaries.set(symbol, `${index}:${symbol.time}`);
+        }
+    });
+    return { measureFor: symbol => measures.get(symbol), boundaryFor: symbol => boundaries.get(symbol) };
 }
 export function renderModel(model: Pick<Model, 'tosvg'>, id: string, content: string): void {
     try {
@@ -267,7 +286,7 @@ export async function filterSelections(choices: EffectiveChoices, voiceLists: Vo
         });
     } finally { worker?.terminate(); URL.revokeObjectURL(workerUrl); }
 }
-const canonicalLookups = new WeakMap<Model, { lookup: Map<string, MusicSymbol[]>[]; times: WeakMap<MusicSymbol, number>; transposition: number }>();
+const canonicalLookups = new WeakMap<Model, { lookup: Map<string, MusicSymbol[]>[]; times: WeakMap<MusicSymbol, number>; transposition: number; measures: Pick<PreviewPlan, 'measureFor' | 'boundaryFor'> }>();
 export function createPlan(content: string, choices: EffectiveChoices, original: Model, selections: Selections[], retainedAudio?: Model): PreviewPlan {
     const notationRequested = choices.notation.instrumentKey !== undefined || choices.notation.octaveShift !== undefined || Object.keys(choices.notation.voices ?? {}).length > 0;
     if ((notationRequested || choices.transposition.semitones) && /(?:\b(?:score|sound|shift|transpose|octave)\s*=|^[ \t]*(?:%%|I:)transpose\b)/m.test(content.replace(/^[ \t]*%(?!%)[^\n]*$/gm, ''))) {
@@ -293,7 +312,8 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
         }
         return map;
     });
-    canonicalLookups.set(audio, { lookup, times, transposition });
+    const measures = cached?.measures ?? measureIndex(audio);
+    canonicalLookups.set(audio, { lookup, times, transposition, measures });
     const notices = selections.flatMap((selection, i) => [...selection.display.notices, ...selection.playback.notices].map(notice => `${inventory[i].title}: ${notice}`));
     const displaySymbols = new WeakMap<MusicSymbol, MusicSymbol>();
     const gridTunes = selections.map(selection => !selection.display.ids.length && choices.display.chords !== false);
@@ -318,6 +338,7 @@ export function createPlan(content: string, choices: EffectiveChoices, original:
     notices.push('Source navigation and source-position diagnostics are disabled: configuration, personal projections and fit2box do not yet provide a composed source map.');
     return {
         content: displayContent, audio, playbackTransposition, inventories: inventory, selections, notices, grids,
+        ...measures,
         gridSelection(start, end) {
             for (const [index, grid] of grids.entries()) {
                 if (!grid) continue;
