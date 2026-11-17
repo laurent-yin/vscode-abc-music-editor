@@ -4,6 +4,14 @@ All notable changes to the "vscode-abc-music-editor" extension will be documente
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [Unreleased]
+
+### Added
+
+- Expand abctools named templates from inherited `.abcconfig` files and local
+  `.raw.abc` definitions for preview and playback, including inline calls.
+- Refresh the open preview when an applicable `.abcconfig` file is saved.
+
 ## [0.4.13] - 2026-11-14
 
 ### Fixed

@@ -71,6 +71,7 @@ export function activate(context: vscode.ExtensionContext) {
 		
 		// Listen for text document changes to refresh the preview
 		context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(handleTextDocumentChange));
+        context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(handleConfigSave));
 
 		/* Smart editing commands to auto-close double quotes when adding chords.
 		 There is a VS code configuration that would do almost that but it doesn't work if you're inserting it to the right of some text */
@@ -144,7 +145,19 @@ async function handleTextDocumentChange(e: vscode.TextDocumentChangeEvent) {
 	// show errors and refresh preview whenever the text changes
 	if (previewDocument?.uri.toString() === e.document.uri.toString()) await postAbcToWebview(e.document);
 }
-  
+
+async function handleConfigSave(document: vscode.TextDocument): Promise<void> {
+    if (!previewDocument || document.uri.scheme !== 'file' || !document.fileName.endsWith('.abcconfig')) return;
+    const root = libraryRoot(previewDocument);
+    const configDirectory = path.dirname(document.fileName);
+    for (let directory = path.dirname(previewDocument.fileName); ; directory = path.dirname(directory)) {
+        if (directory === configDirectory) {
+            await postAbcToWebview(previewDocument);
+            return;
+        }
+        if (directory === root || directory === path.dirname(directory)) return;
+    }
+}
 
 async function postAbcToWebview(document: vscode.TextDocument): Promise<void> {
     previewDocument = document;

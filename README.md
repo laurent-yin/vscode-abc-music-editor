@@ -45,6 +45,8 @@ Save voice choices, transposition and instrument notation without changing your 
 ### 🗂️ Shared ABC Settings
 
 Reuse your library's notation settings with `.abcconfig` files and [abctools](https://github.com/laurent-yin/abctools).
+Define reusable templates in `.abcconfig` or `.raw.abc` files and insert them
+with `{{name}}` for preview and playback. See [Named templates](docs/preview-guide.md#named-templates).
 
 ### 📦 Integrated with abc2svg
 

@@ -2,8 +2,10 @@
 
 [Overview](../README.md) | [Preview guide](preview-guide.md)
 
-The extension uses the published `abctools@0.2.6` npm package, including its
-portable preferences and configuration APIs. No sibling checkout is required.
+The extension uses the published `abctools@0.3.0` npm package, including its
+portable preferences, configuration APIs and named template expansion.
+No sibling checkout is required, and no template parser is duplicated in the
+extension.
 
 Development tooling requires Node.js 20.19+, 22.13+, or 24+. This does not
 change the extension's VS Code runtime requirement. ESLint and TypeScript-ESLint

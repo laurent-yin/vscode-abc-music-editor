@@ -9,6 +9,40 @@ VS Code workspace or reload the window. The source file and its saved personal
 preferences are reloaded; playback does not restart automatically. If the source
 file is no longer available, an error is shown and the preview is closed.
 
+## Named templates
+
+Define reusable ABC text in a `.abcconfig` file, or in your `.raw.abc` file
+before its first `K:` field:
+
+```abc
+%%template polca
+%%MIDI gchordon
+%%MIDI gchord fzccfzcz
+%%endtemplate
+```
+
+Call it on a dedicated line with `{{polca}}`, or within music:
+
+```abc
+"C"C2 {{polca}} DE | "G"G4 |]
+```
+
+The preview and playback use abctools to expand templates before rendering;
+the source file is never rewritten. Inline calls become inline ABC instructions
+without introducing musical line breaks. Dedicated-line calls preserve their
+multiline content. Only inline-compatible content may be called within music.
+
+Parent-folder definitions are inherited up to the workspace root. Child-folder
+definitions replace them, then file-local definitions take precedence. Calls
+are case-sensitive. Unknown names and invalid definitions show a preview error.
+Quoted annotations, comments, metadata and existing inline fields stay literal.
+Save a `.abcconfig` in the previewed file's folder or an ancestor within the
+workspace to refresh the preview. Unsaved changes to the ABC source update live;
+configuration files are read from disk.
+
+See the [abctools template reference](https://github.com/laurent-yin/abctools#named-templates)
+for supported content, validation rules and renderer limitations.
+
 ## Personal preview preferences
 
 Open the gear on the playback toolbar to change personal preferences. Its
