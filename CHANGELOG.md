@@ -4,13 +4,20 @@ All notable changes to the "vscode-abc-music-editor" extension will be documente
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [Unreleased]
+## [0.4.14] - 2026-11-18
 
 ### Added
 
 - Expand abctools named templates from inherited `.abcconfig` files and local
   `.raw.abc` definitions for preview and playback, including inline calls.
 - Refresh the open preview when an applicable `.abcconfig` file is saved.
+- Highlight template definitions, names and `{{name}}` calls in ABC and
+  `.abcconfig` files, preserving literal text and comments.
+
+### Fixed
+
+- Template names and calls use keyword colors as a fallback in classic themes
+  such as Visual Studio Light, which do not define function colors.
 
 ## [0.4.13] - 2026-11-14
 

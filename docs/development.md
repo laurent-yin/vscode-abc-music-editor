@@ -24,6 +24,17 @@ The test suite covers the portable store and bundled renderer. `test:host`
 requires the installed `code` executable and a display; it uses an isolated
 profile for activation/preview/bridge smoke tests.
 
+## Debugging
+
+Press F5 to launch the Extension Development Host. The workspace disables
+`debug.javascript.enableNetworkView` to avoid an intermittent debugger startup
+crash in VS Code 1.146.0 / JavaScript Debugger 1.140.1
+([vscode-js-debug#2462](https://github.com/microsoft/vscode-js-debug/issues/2462)).
+The affected host exits with code 134 before extension activation. This disables
+the debugger's network inspector only; breakpoints, ABC preview restoration and
+playback remain enabled. Retry several F5 launches to check whether this
+workaround resolves a local startup crash.
+
 ## Browser tests
 
 ```sh

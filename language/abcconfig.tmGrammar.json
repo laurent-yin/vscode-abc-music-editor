@@ -1,8 +1,12 @@
 {
     "scopeName": "source.abcconfig",
     "patterns": [
+        { "include": "source.abc#literal-block" },
+        { "include": "source.abc#templates" },
         { "include": "#directive" },
-        { "include": "#comments" }
+        { "include": "#comments" },
+        { "include": "source.abc#chords" },
+        { "include": "source.abc#inline-field" }
     ],
     "repository": {
         "directive": {
@@ -16,7 +20,7 @@
         "comments": {
             "patterns": [                
                 {
-                    "match": "^%.*",
+                    "match": "%.*",
                     "name": "comment"
                 }
             ]

@@ -1,13 +1,52 @@
 {
     "scopeName": "source.abc",
     "patterns": [
+        { "include": "#literal-block" },
+        { "include": "#templates" },
         { "include": "#field" },
         { "include": "#directive" },
         { "include": "#comments" },
         { "include": "#chords" },
+        { "include": "#inline-field" },
         { "include": "#bar" }
     ],
     "repository": {
+        "literal-block": {
+            "begin": "^\\s*(?:%%|I:)begin(\\S*)\\b",
+            "end": "^\\s*(?:%%|I:)end\\1\\s*$",
+            "beginCaptures": { "0": { "name": "storage" } },
+            "endCaptures": { "0": { "name": "storage" } },
+            "contentName": "string.unquoted.block.abc"
+        },
+        "templates": {
+            "patterns": [
+                {
+                    "match": "^\\s*(%%template)[ \\t]+([\\p{L}\\p{N}_.-]+(?: +[\\p{L}\\p{N}_.-]+)*)[ \\t]*$",
+                    "name": "meta.function.template.abc",
+                    "captures": {
+                        "1": { "name": "keyword.control.template.abc" },
+                        "2": { "name": "keyword.other.template.abc entity.name.function.template.abc" }
+                    }
+                },
+                {
+                    "match": "^\\s*%%endtemplate\\s*$",
+                    "name": "keyword.control.template.abc"
+                },
+                {
+                    "match": "(\\{\\{)[ \\t]*([\\p{L}\\p{N}_.-]+(?: +[\\p{L}\\p{N}_.-]+)*)[ \\t]*(\\}\\})",
+                    "name": "meta.function-call.template.abc keyword.other.template.abc",
+                    "captures": {
+                        "1": { "name": "punctuation.definition.template.begin.abc" },
+                        "2": { "name": "support.function.template.abc" },
+                        "3": { "name": "punctuation.definition.template.end.abc" }
+                    }
+                }
+            ]
+        },
+        "inline-field": {
+            "match": "\\[[A-Za-z]:[^\\]]*\\]",
+            "name": "meta.field.inline.abc"
+        },
         "field": {
             "patterns": [                
                 {
@@ -30,7 +69,7 @@
         "comments": {
             "patterns": [                
                 {
-                    "match": "^%.*",
+                    "match": "%.*",
                     "name": "comment"
                 }
             ]

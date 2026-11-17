@@ -27,6 +27,12 @@ Call it on a dedicated line with `{{polca}}`, or within music:
 "C"C2 {{polca}} DE | "G"G4 |]
 ```
 
+The editor highlights `%%template` / `%%endtemplate`, definition names and
+`{{name}}` calls in both ABC and `.abcconfig` files using your current theme.
+Names fall back to keyword colors in themes without function colors, so calls
+are blue rather than black in Visual Studio Light.
+Comments, quoted text and literal blocks keep their ordinary highlighting.
+
 The preview and playback use abctools to expand templates before rendering;
 the source file is never rewritten. Inline calls become inline ABC instructions
 without introducing musical line breaks. Dedicated-line calls preserve their
